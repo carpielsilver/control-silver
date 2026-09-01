@@ -390,7 +390,7 @@ function buildGCalUrl(b){
   const title=encodeURIComponent(`Evento letras — ${b.client}`);
   const details=encodeURIComponent(`Cliente: ${b.client}\nTel: ${b.telefono||'—'}\nLetras: ${itemNames}\nCobro: ${fmtMoney(b.income)}${b.notes?'\n'+b.notes:''}`);
   const location=encodeURIComponent(b.direccion||'');
-  return`https://calendar.google.com/calendar/r/eventedit?text=${title}&dates=${start}/${end}&details=${details}&location=${location}`;
+  return`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${details}&location=${location}`;
 }
 
 // ─── RENDER ────────────────────────────────────────────
