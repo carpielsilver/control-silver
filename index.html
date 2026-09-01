@@ -492,7 +492,7 @@ function renderReservas(){
       <td class="td-actions">
         <a class="btn btn-contract btn-sm" href="${contratoUrl}" target="_blank" rel="noopener">📄 Contrato</a>
         <a class="btn btn-gcal btn-sm" href="${gcalUrl}" target="_blank" rel="noopener">📅 G.Calendar</a>
-        <button class="btn btn-ghost btn-sm" data-ics="${b.id}">.ics</button>
+        <button class="btn btn-ghost btn-sm" href="/api/ics?id=${b.id}">📅 Al calendario</a>
         ${b.status==='confirmed'?`<button class="btn btn-danger btn-sm" data-cancel="${b.id}">Cancelar</button>`:''}
       </td>
     </tr>`;
