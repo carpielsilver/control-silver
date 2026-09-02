@@ -266,6 +266,38 @@ button:disabled{opacity:0.4;}
 .q-total .ql{font-family:var(--serif);font-weight:600;font-size:0.95rem;color:var(--amber-2);}
 .q-total .qv{font-family:var(--mono);font-weight:700;color:var(--amber-2);font-size:1.5rem;}
 
+/* FUTURISTIC INVENTORY PANEL */
+.fpanel{position:relative;overflow:hidden;background:linear-gradient(160deg,#10151a,#0c1013);border:1px solid rgba(91,190,220,0.22);}
+.fpanel::before{
+  content:'';position:absolute;inset:0;pointer-events:none;opacity:0.5;
+  background-image:linear-gradient(rgba(91,190,220,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(91,190,220,0.06) 1px,transparent 1px);
+  background-size:18px 18px;
+}
+.fpanel-head{display:flex;align-items:center;gap:8px;margin-bottom:16px;position:relative;z-index:1;}
+.fpanel-dot{width:8px;height:8px;border-radius:50%;background:#5be0d4;box-shadow:0 0 8px 2px rgba(91,224,212,0.7);flex-shrink:0;animation:fpulse 1.8s ease-in-out infinite;}
+@keyframes fpulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.fpanel-title{font-family:var(--mono);font-size:0.7rem;font-weight:600;letter-spacing:0.12em;color:#8fe3da;}
+.fpanel-sub{margin-left:auto;font-family:var(--mono);font-size:0.66rem;color:#5b8a86;}
+.fgrid-label{font-family:var(--mono);font-size:0.62rem;letter-spacing:0.1em;color:#5b8a86;text-transform:uppercase;margin:10px 2px 7px;position:relative;z-index:1;}
+.ftile-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;position:relative;z-index:1;margin-bottom:4px;}
+.ftile-grid-num{grid-template-columns:repeat(5,1fr);}
+.ftile{
+  aspect-ratio:1;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  font-family:var(--mono);cursor:pointer;transition:transform .1s;border:1px solid;
+}
+.ftile:active{transform:scale(0.92);}
+.ftile-ch{font-size:0.82rem;font-weight:700;}
+.ftile-n{font-size:0.58rem;opacity:0.85;}
+.tile-ok{background:rgba(91,224,212,0.10);border-color:rgba(91,224,212,0.4);color:#8fe3da;box-shadow:0 0 8px -2px rgba(91,224,212,0.4);}
+.tile-low{background:rgba(230,161,92,0.12);border-color:rgba(230,161,92,0.45);color:var(--amber-2);box-shadow:0 0 8px -2px rgba(230,161,92,0.4);}
+.tile-empty{background:rgba(120,120,130,0.06);border-color:rgba(120,120,130,0.18);color:#5a5a62;}
+.fpanel-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid rgba(91,190,220,0.14);position:relative;z-index:1;}
+.fpanel-legend span{display:flex;align-items:center;gap:5px;font-size:0.66rem;color:#7a9490;font-family:var(--mono);}
+.fdot{width:7px;height:7px;border-radius:50%;display:inline-block;}
+.fdot-ok{background:#5be0d4;}
+.fdot-low{background:var(--amber-2);}
+.fdot-empty{background:#5a5a62;}
+
 /* CALENDAR */
 .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .cal-month{font-family:var(--serif);font-weight:600;font-size:1.05rem;text-transform:capitalize;}
@@ -291,8 +323,7 @@ button:disabled{opacity:0.4;}
 .cat-tag{background:var(--wood-2);border:1px solid var(--line-strong);border-radius:100px;padding:5px 11px;font-size:0.74rem;font-weight:600;display:flex;align-items:center;gap:6px;}
 .cat-tag button{background:transparent;border:none;color:#ef8b6f;padding:0;font-size:0.85rem;cursor:pointer;font-weight:700;line-height:1;}
 
-/* PROJECT CARD */
-.proj-photo{width:56px;height:56px;border-radius:9px;object-fit:cover;border:1.5px solid var(--line-strong);cursor:pointer;flex-shrink:0;}
+/* PROJECT CARD */.proj-photo{width:56px;height:56px;border-radius:9px;object-fit:cover;border:1.5px solid var(--line-strong);cursor:pointer;flex-shrink:0;}
 
 /* MISC */
 .wa-fab{display:none;}
@@ -344,7 +375,7 @@ let state={
   calMonth:new Date().getMonth(),calYear:new Date().getFullYear(),calSelectedDate:null,
   finGroupBy:'mes',
   bookingItemSel:{},
-  invSelType:'letra',invSelValue:'A',
+  invSelType:'letra',invSelValue:'A',invSelKind:'letra',
   bkClient:'',bkTelefono:'',bkTexto:'',bkCorona:false,bkDireccion:'',bkKm:'',
   bkGeoStatus:'idle',bkLugar:'',bkStart:'',bkEnd:'',bkHoraEntrega:'',
   bkHoraRecoleccion:'',bkAnticipo:'',bkMetodo:'',bkNotes:'',bkIncomeOverride:null,bookingMsg:null,
@@ -581,28 +612,55 @@ function renderDashboard(){
 
 // ─── INVENTARIO ────────────────────────────────────────
 function invOpts(){
-  const l=ALFABETO.map(l=>`<option value="letra:${l}">Letra ${l}</option>`).join('');
-  const n=NUMEROS.map(n=>`<option value="numero:${n}">Número ${n}</option>`).join('');
-  return`<optgroup label="Letras">${l}</optgroup><optgroup label="Números">${n}</optgroup><option value="otra">Otra pieza...</option>`;
+  const cur=state.invSelType==='otra'?'otra':`${state.invSelKind}:${state.invSelValue}`;
+  const l=ALFABETO.map(l=>`<option value="letra:${l}" ${cur==='letra:'+l?'selected':''}>Letra ${l}</option>`).join('');
+  const n=NUMEROS.map(n=>`<option value="numero:${n}" ${cur==='numero:'+n?'selected':''}>Número ${n}</option>`).join('');
+  return`<optgroup label="Letras">${l}</optgroup><optgroup label="Números">${n}</optgroup><option value="otra" ${cur==='otra'?'selected':''}>Otra pieza...</option>`;
 }
 function renderInventario(){
-  const todos=[...state.inventory.filter(i=>i.isLetter&&ALFABETO.includes(i.id)),
-    ...state.inventory.filter(i=>i.isLetter&&NUMEROS.includes(i.id)),
-    ...state.inventory.filter(i=>!i.isLetter)];
-  const items=todos.map(it=>`<div class="item">
+  const letras=state.inventory.filter(i=>i.isLetter&&ALFABETO.includes(i.id));
+  const numeros=state.inventory.filter(i=>i.isLetter&&NUMEROS.includes(i.id));
+  const custom=state.inventory.filter(i=>!i.isLetter);
+  const tile=it=>{
+    const stock=it.total;
+    const cls=stock===0?'tile-empty':stock<=2?'tile-low':'tile-ok';
+    return`<button class="ftile ${cls}" data-editqty="${it.id}">
+      <span class="ftile-ch">${esc(it.name)}</span>
+      <span class="ftile-n">${stock}</span>
+    </button>`;
+  };
+  const customItems=custom.map(it=>`<div class="item">
     <div class="item-top">
-      <div><div class="item-name">${esc(it.name)}${it.isLetter?'':' <span style="color:var(--text-3);font-weight:400;font-size:0.72rem">(accesorio)</span>'}</div>
+      <div><div class="item-name">${esc(it.name)} <span style="color:var(--text-3);font-weight:400;font-size:0.72rem">(accesorio)</span></div>
       <div class="item-meta">${it.total===0?'Sin stock':it.total+' disponibles'}</div></div>
       <span class="pill ${it.total===0?'pill-bad':'pill-ok'}">${it.total}</span>
     </div>
     <div class="item-actions">
       <button class="btn btn-ghost btn-sm" data-editqty="${it.id}">Editar cantidad</button>
-      ${it.isLetter?'':`<button class="btn btn-danger btn-sm" data-delcustom="${it.id}">Eliminar</button>`}
+      <button class="btn btn-danger btn-sm" data-delcustom="${it.id}">Eliminar</button>
     </div>
   </div>`).join('');
+  const total=letras.length+numeros.length+custom.length;
+  const enStock=[...letras,...numeros,...custom].filter(i=>i.total>0).length;
   return`
+  <div class="card fpanel">
+    <div class="fpanel-head">
+      <span class="fpanel-dot"></span>
+      <span class="fpanel-title">PANEL DE INVENTARIO</span>
+      <span class="fpanel-sub">${enStock}/${total} activas</span>
+    </div>
+    <div class="fgrid-label">Letras</div>
+    <div class="ftile-grid">${letras.map(tile).join('')}</div>
+    <div class="fgrid-label">Números</div>
+    <div class="ftile-grid ftile-grid-num">${numeros.map(tile).join('')}</div>
+    <div class="fpanel-legend">
+      <span><i class="fdot fdot-ok"></i> Stock ok</span>
+      <span><i class="fdot fdot-low"></i> Stock bajo</span>
+      <span><i class="fdot fdot-empty"></i> Sin stock</span>
+    </div>
+  </div>
   <div class="card">
-    <div class="card-title">Actualizar inventario</div>
+    <div class="card-title">Actualizar cantidad</div>
     <label>Pieza</label>
     <select id="invSel">${invOpts()}</select>
     ${state.invSelType==='otra'?'<label>Nombre</label><input type="text" id="invCustomName" placeholder="Ej. Corazón">':''}
@@ -610,8 +668,7 @@ function renderInventario(){
     <input type="number" id="invQty" min="0" placeholder="0">
     <button class="btn btn-primary btn-block" id="invSaveBtn">Guardar cantidad</button>
   </div>
-  <div class="section-label">Tu inventario · ${todos.length} piezas</div>
-  <div class="list">${todos.length?items:'<div class="empty">Sin piezas aún.</div>'}</div>`;
+  ${custom.length?`<div class="section-label">Accesorios</div><div class="list">${customItems}</div>`:''}`;
 }
 
 // ─── RESERVAS + COTIZACIONES ────────────────────────────
@@ -1021,7 +1078,7 @@ function sendWaRecordatorio(bookingId){
 // ─── EVENTOS ───────────────────────────────────────────
 function bindEvents(){
   const invSel=document.getElementById('invSel');
-  if(invSel)invSel.onchange=()=>{const v=invSel.value;state.invSelType=v==='otra'?'otra':'letra';if(v!=='otra'){const[,val]=v.split(':');state.invSelValue=val;}render();};
+  if(invSel)invSel.onchange=()=>{const v=invSel.value;state.invSelType=v==='otra'?'otra':'letra';if(v!=='otra'){const[kind,val]=v.split(':');state.invSelKind=kind;state.invSelValue=val;}render();};
   const invSave=document.getElementById('invSaveBtn');
   if(invSave)invSave.onclick=()=>{
     const qty=parseInt(document.getElementById('invQty').value);
