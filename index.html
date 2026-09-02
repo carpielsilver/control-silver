@@ -83,9 +83,9 @@ body::before{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   border-bottom:1px solid var(--line);
 }
-.brand{display:flex;align-items:center;gap:11px;min-width:0;}
+.brand{display:flex;align-items:center;gap:11px;min-width:0;flex:1;}
 .brand .logo-wrap{
-  width:74px;height:74px;border-radius:19px;overflow:hidden;flex-shrink:0;
+  width:64px;height:64px;border-radius:17px;overflow:hidden;flex-shrink:0;
   background:var(--logo-bg);display:flex;align-items:center;justify-content:center;
   box-shadow:0 4px 18px rgba(0,0,0,0.35),inset 0 0 0 1.5px rgba(230,161,92,0.35);
   position:relative;
@@ -103,11 +103,16 @@ body::before{
 .theme-toggle svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;}
 .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .brand-text{min-width:0;}
-.brand-text .name{font-family:var(--serif);font-weight:600;font-size:1.2rem;letter-spacing:-0.01em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(120deg,var(--text),var(--amber-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+.brand-text .name{font-family:var(--serif);font-weight:600;font-size:1.05rem;letter-spacing:-0.01em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(120deg,var(--text),var(--amber-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
 .brand-text .tag{font-size:0.68rem;color:var(--text-3);letter-spacing:0.03em;margin-top:2px;text-transform:uppercase;}
 .sync-dot{
   display:flex;align-items:center;gap:6px;font-size:0.68rem;font-weight:600;color:var(--text-3);
-  padding:6px 10px;border-radius:100px;background:var(--card);border:1px solid var(--line);flex-shrink:0;
+  padding:6px 8px;border-radius:100px;background:var(--card);border:1px solid var(--line);flex-shrink:0;
+}
+.sync-dot #syncText{display:none;}
+@media(min-width:400px){
+  .sync-dot{padding:6px 10px;}
+  .sync-dot #syncText{display:inline;}
 }
 .sync-dot .dot{width:6px;height:6px;border-radius:50%;background:var(--text-3);transition:background .2s;}
 .sync-dot.ok .dot{background:var(--sap);box-shadow:0 0 6px var(--sap);}
