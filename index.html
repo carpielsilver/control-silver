@@ -244,6 +244,7 @@ button:disabled{opacity:0.4;}
 .stat.expense .val{color:#ef8b6f;}
 .stat.profit .val{color:var(--amber-2);}
 .stat.warn .val{color:var(--amber-2);}
+.stat.info .val{color:var(--sky);}
 .stat.neutral .val{color:var(--text-2);}
 
 /* TOGGLE GROUP */
@@ -643,11 +644,25 @@ function renderInventario(){
   </div>`).join('');
   const total=letras.length+numeros.length+custom.length;
   const enStock=[...letras,...numeros,...custom].filter(i=>i.total>0).length;
+  const sumLetras=letras.reduce((s,i)=>s+(Number(i.total)||0),0);
+  const sumNumeros=numeros.reduce((s,i)=>s+(Number(i.total)||0),0);
+  const sumAccesorios=custom.reduce((s,i)=>s+(Number(i.total)||0),0);
+  const sumTotal=sumLetras+sumNumeros+sumAccesorios;
   const costoPiezas=[...letras,...numeros,...custom].reduce((s,it)=>s+(Number(it.total)||0)*(Number(it.costoUnit)||0),0);
   const costoMantenimiento=state.expenses.filter(e=>e.category==='Mantenimiento').reduce((s,e)=>s+(Number(e.amount)||0),0);
   const totalInvertido=costoPiezas+costoMantenimiento;
   const conCosto=[...letras,...numeros,...custom].filter(i=>Number(i.costoUnit)>0).length;
   return`
+  <div class="card">
+    <div class="card-title">Existencias</div>
+    <div class="card-sub">Cuántas piezas físicas tienes de cada tipo</div>
+    <div class="stat-grid">
+      <div class="stat income"><div class="lbl">Letras</div><div class="val">${sumLetras}</div></div>
+      <div class="stat info"><div class="lbl">Números</div><div class="val">${sumNumeros}</div></div>
+      <div class="stat warn"><div class="lbl">Accesorios</div><div class="val">${sumAccesorios}</div></div>
+      <div class="stat profit"><div class="lbl">Total piezas</div><div class="val">${sumTotal}</div></div>
+    </div>
+  </div>
   <div class="card fpanel">
     <div class="fpanel-head">
       <span class="fpanel-dot"></span>
@@ -692,7 +707,18 @@ function renderInventario(){
     <input type="number" id="invCosto" min="0" placeholder="Ej. 350" value="${(()=>{const it=state.invSelType==='otra'?null:state.inventory.find(i=>i.id===state.invSelValue);return it&&it.costoUnit?it.costoUnit:'';})()}">
     <button class="btn btn-primary btn-block" id="invSaveBtn">Guardar cantidad</button>
   </div>
-  ${custom.length?`<div class="section-label">Accesorios</div><div class="list">${customItems}</div>`:''}`;
+  <div class="card">
+    <div class="card-title">🔌 Agregar accesorio</div>
+    <div class="card-sub">Extensiones, multicontactos, coronas, u otras piezas que no sean letras/números.</div>
+    <label>Nombre</label>
+    <input type="text" id="accName" placeholder="Ej. Extensión 10m">
+    <div class="row">
+      <div><label>Cantidad</label><input type="number" id="accQty" min="0" placeholder="0"></div>
+      <div><label>Costo unitario</label><input type="number" id="accCosto" min="0" placeholder="Opcional"></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="accSaveBtn">Agregar / actualizar accesorio</button>
+  </div>
+  ${custom.length?`<div class="section-label">Accesorios registrados</div><div class="list">${customItems}</div>`:''}`;
 }
 
 // ─── RESERVAS + COTIZACIONES ────────────────────────────
@@ -1133,6 +1159,18 @@ function sendWaRecordatorio(bookingId){
 function bindEvents(){
   const invSel=document.getElementById('invSel');
   if(invSel)invSel.onchange=()=>{const v=invSel.value;state.invSelType=v==='otra'?'otra':'letra';if(v!=='otra'){const[kind,val]=v.split(':');state.invSelKind=kind;state.invSelValue=val;}render();};
+  const accSaveBtn=document.getElementById('accSaveBtn');
+  if(accSaveBtn)accSaveBtn.onclick=()=>{
+    const name=document.getElementById('accName').value.trim();
+    const qty=parseInt(document.getElementById('accQty').value);
+    const costo=document.getElementById('accCosto').value;
+    if(!name)return alert('Escribe el nombre del accesorio.');
+    if(isNaN(qty)||qty<0)return alert('Cantidad inválida.');
+    const ex=state.inventory.find(i=>!i.isLetter&&i.name.toLowerCase()===name.toLowerCase());
+    if(ex){ex.total=qty;if(costo!=='')ex.costoUnit=parseFloat(costo);}
+    else state.inventory.push({id:uid(),name,total:qty,isLetter:false,costoUnit:costo!==''?parseFloat(costo):0});
+    saveData();render();
+  };
   const invApplyBase=document.getElementById('invApplyBaseBtn');
   if(invApplyBase)invApplyBase.onclick=()=>{
     const val=parseFloat(document.getElementById('invBaseCost').value);
