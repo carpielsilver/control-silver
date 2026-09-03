@@ -378,7 +378,7 @@ let state={
   invSelType:'letra',invSelValue:'A',invSelKind:'letra',
   bkClient:'',bkTelefono:'',bkTexto:'',bkCorona:false,bkDireccion:'',bkKm:'',
   bkGeoStatus:'idle',bkLugar:'',bkStart:'',bkEnd:'',bkHoraEntrega:'',
-  bkHoraRecoleccion:'',bkAnticipo:'',bkMetodo:'',bkNotes:'',bkIncomeOverride:null,bookingMsg:null,
+  bkHoraRecoleccion:'',bkAnticipo:'',bkMetodo:'',bkNotes:'',bkIncomeOverride:null,bookingMsg:null,editingBookingId:null,
   pjClient:'',pjNombre:'',pjTipo:'Mueble',pjPresupuesto:'',pjAnticipo:'',
   pjMateria:'',pjMano:'',pjStatus:'En espera',pjFechaInicio:'',pjFechaEntrega:'',pjNotas:'',pjMsg:null,
   matNombre:'',matCantidad:'',matUnidad:'pzas',matPrecio:'',matMin:'',matMsg:null,
@@ -725,6 +725,7 @@ function renderReservas(){
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank">📅</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬</button>
         ${!b.saldoPagado&&saldo>0?`<button class="btn btn-warn btn-sm" data-pagado="${b.id}">Cobrado</button>`:''}
+        <button class="btn btn-ghost btn-sm" data-editbooking="${b.id}">✏️ Editar</button>
         ${b.status==='confirmed'?`<button class="btn btn-danger btn-sm" data-cancel="${b.id}">Cancelar</button>`:''}
         <button class="btn btn-danger btn-sm" data-delbooking="${b.id}">🗑️ Eliminar</button>
       </div>
@@ -747,7 +748,8 @@ function renderReservas(){
   const freqClients=getFrequentClients();
   return`
   <div class="card">
-    <div class="card-title">Cotizador</div>
+    <div class="card-title">${state.editingBookingId?'✏️ Editando reserva':'Cotizador'}</div>
+    ${state.editingBookingId?`<div class="msg msg-info">Estás editando una reserva existente. Cambia lo que necesites (letras, fechas, abono, etc.) y guarda.</div>`:''}
     ${state.bookingMsg?`<div class="msg ${state.bookingMsg.type==='ok'?'msg-ok':state.bookingMsg.type==='info'?'msg-info':'msg-err'}">${state.bookingMsg.text}</div>`:''}
     ${freqClients.length?`<label>Cliente frecuente</label>
     <select id="bkFreqClient">
@@ -799,9 +801,10 @@ function renderReservas(){
     <textarea id="bkNotes" rows="2" placeholder="Instrucciones especiales...">${esc(state.bkNotes)}</textarea>
     ${accesorios.length?`<div class="section-label" style="margin-top:0">Piezas adicionales</div>${accHtml}`:''}
     <div class="action-row">
-      <button class="btn btn-whats btn-block" id="whatsBtn" ${res?'':'disabled'}>💬 Enviar cotización por WhatsApp</button>
-      <button class="btn btn-ghost btn-block" id="saveCotBtn" ${res?'':'disabled'}>💾 Guardar cotización</button>
-      <button class="btn btn-primary btn-block" id="checkBookBtn">✅ Verificar y reservar</button>
+      ${state.editingBookingId?'':`<button class="btn btn-whats btn-block" id="whatsBtn" ${res?'':'disabled'}>💬 Enviar cotización por WhatsApp</button>
+      <button class="btn btn-ghost btn-block" id="saveCotBtn" ${res?'':'disabled'}>💾 Guardar cotización</button>`}
+      <button class="btn btn-primary btn-block" id="checkBookBtn">${state.editingBookingId?'💾 Guardar cambios':'✅ Verificar y reservar'}</button>
+      ${state.editingBookingId?`<button class="btn btn-ghost btn-block" id="cancelEditBtn">Cancelar edición</button>`:''}
     </div>
   </div>
   ${state.cotizaciones.some(c=>c.status!=='confirmada')?`
@@ -1163,6 +1166,14 @@ function bindEvents(){
   const chkBtn=document.getElementById('checkBookBtn');if(chkBtn)chkBtn.onclick=tryReservar;
   document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{if(confirm('¿Cancelar reserva?')){const bk=state.bookings.find(x=>x.id===b.dataset.cancel);bk.status='cancelled';saveData();render();}});
   document.querySelectorAll('[data-delbooking]').forEach(b=>b.onclick=()=>{if(confirm('¿Eliminar esta reserva por completo? Esto no se puede deshacer.')){state.bookings=state.bookings.filter(x=>x.id!==b.dataset.delbooking);saveData();render();}});
+  document.querySelectorAll('[data-editbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.editbooking));
+  const cancelEditBtn=document.getElementById('cancelEditBtn');
+  if(cancelEditBtn)cancelEditBtn.onclick=()=>{
+    state.editingBookingId=null;
+    state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
+    state.bkGeoStatus='idle';state.bkLugar='';state.bkHoraEntrega='';state.bkHoraRecoleccion='';state.bkAnticipo='';state.bkMetodo='';state.bkNotes='';state.bkIncomeOverride=null;state.bookingItemSel={};
+    state.bookingMsg=null;render();
+  };
   document.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=()=>{const bk=state.bookings.find(x=>x.id===b.dataset.pagado);if(bk){bk.saldoPagado=true;saveData();render();}});
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
   document.querySelectorAll('[data-cot-conv]').forEach(b=>b.onclick=()=>convertCotizacion(b.dataset.cotConv));
@@ -1284,6 +1295,33 @@ function convertCotizacion(cotId){
   state.tab='reservas';state.bookingMsg={type:'info',text:'Cotización cargada. Revisa las fechas y confirma la reserva.'};
   render();window.scrollTo(0,0);
 }
+function editBooking(bookingId){
+  const b=state.bookings.find(x=>x.id===bookingId);if(!b)return;
+  state.editingBookingId=bookingId;
+  state.bkClient=b.client;state.bkTelefono=b.telefono||'';
+  const names=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return inv?inv.name:i.itemId;});
+  // Reconstruir texto de letras a partir de items que son letras/números (no accesorios)
+  const letraItems=b.items.filter(i=>ALFABETO.includes(i.itemId)||NUMEROS.includes(i.itemId));
+  let texto='';
+  for(const it of letraItems)texto+=it.itemId.repeat(it.qty);
+  state.bkTexto=texto;
+  state.bkCorona=false; // corona ya no se rastrea por separado en items; se puede reajustar el costo manual
+  state.bkDireccion=b.direccion||'';state.bkKm='';state.bkGeoStatus='idle';state.bkLugar='';
+  if(b.direccion){const m=geoLugar(b.direccion);if(m){state.bkKm=String(m.km);state.bkLugar=m.nombre;state.bkGeoStatus='ok';}}
+  state.bkStart=b.dateStart;state.bkEnd=b.dateEnd;
+  state.bkHoraEntrega=b.horaEntrega||'';state.bkHoraRecoleccion=b.horaRecoleccion||'';
+  state.bkAnticipo=b.anticipo||'';state.bkMetodo=b.metodo||'';state.bkNotes=b.notes||'';
+  state.bkIncomeOverride=Number(b.income)||0;
+  // Preseleccionar accesorios existentes
+  state.bookingItemSel={};
+  for(const it of b.items){
+    if(!ALFABETO.includes(it.itemId)&&!NUMEROS.includes(it.itemId)){
+      state.bookingItemSel[it.itemId]={checked:true,qty:it.qty};
+    }
+  }
+  state.tab='reservas';state.bookingMsg={type:'info',text:'Editando la reserva. Ajusta lo que necesites y guarda los cambios.'};
+  render();window.scrollTo(0,0);
+}
 function tryReservar(){
   const bd=letterBD(state.bkTexto);const km=parseFloat(state.bkKm)||0;const res=calcQ(bd.total,state.bkCorona,km);
   const client=state.bkClient.trim();
@@ -1299,10 +1337,22 @@ function tryReservar(){
   for(const it of allItems){
     const inv=state.inventory.find(i=>i.id===it.itemId);
     if(!inv){problems.push(`No tienes "${it.itemId}" en inventario.`);continue;}
-    const avail=minAvailable(it.itemId,dateStart,dateEnd,null);
+    const avail=minAvailable(it.itemId,dateStart,dateEnd,state.editingBookingId);
     if(it.qty>avail)problems.push(`${inv.name}: pediste ${it.qty}, solo hay ${avail} disponibles.`);
   }
   if(problems.length)return(state.bookingMsg={type:'err',text:'Disponibilidad insuficiente:<br>'+problems.join('<br>')},render());
+  if(state.editingBookingId){
+    const b=state.bookings.find(x=>x.id===state.editingBookingId);
+    if(b){
+      Object.assign(b,{client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes});
+    }
+    state.editingBookingId=null;
+    state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
+    state.bkGeoStatus='idle';state.bkLugar='';state.bkHoraEntrega='';state.bkHoraRecoleccion='';state.bkAnticipo='';state.bkMetodo='';state.bkNotes='';state.bkIncomeOverride=null;state.bookingItemSel={};
+    state.bookingMsg={type:'ok',text:`Cambios guardados para ${esc(client)}.`};
+    saveData();render();
+    return;
+  }
   const nueva={id:uid(),client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes,status:'confirmed',saldoPagado:false};
   state.bookings.push(nueva);
   state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
