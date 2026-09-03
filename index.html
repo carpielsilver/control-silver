@@ -672,6 +672,22 @@ function renderInventario(){
 }
 
 // ─── RESERVAS + COTIZACIONES ────────────────────────────
+// ─── CLIENTES FRECUENTES ────────────────────────────────
+function getFrequentClients(){
+  const map={};
+  for(const b of state.bookings){
+    const key=(b.telefono||b.client).trim().toLowerCase();
+    if(!key)continue;
+    if(!map[key])map[key]={client:b.client,telefono:b.telefono,count:0,saldo:0};
+    map[key].count++;
+    if(b.status==='confirmed'&&!b.saldoPagado){
+      const s=(Number(b.income)||0)-(Number(b.anticipo)||0);
+      if(s>0)map[key].saldo+=s;
+    }
+  }
+  return Object.values(map).sort((a,b)=>b.count-a.count);
+}
+
 function renderReservas(){
   const bd=letterBD(state.bkTexto);
   const km=parseFloat(state.bkKm)||0;
@@ -728,10 +744,16 @@ function renderReservas(){
       </div>
     </div>`).join('');
 
+  const freqClients=getFrequentClients();
   return`
   <div class="card">
     <div class="card-title">Cotizador</div>
     ${state.bookingMsg?`<div class="msg ${state.bookingMsg.type==='ok'?'msg-ok':state.bookingMsg.type==='info'?'msg-info':'msg-err'}">${state.bookingMsg.text}</div>`:''}
+    ${freqClients.length?`<label>Cliente frecuente</label>
+    <select id="bkFreqClient">
+      <option value="">+ Cliente nuevo</option>
+      ${freqClients.map(c=>`<option value="${esc((c.telefono||c.client))}">${esc(c.client)}${c.telefono?' · '+esc(c.telefono):''}${c.saldo>0?' · debe '+fmtM(c.saldo):''}</option>`).join('')}
+    </select>`:''}
     <label>Cliente</label>
     <input type="text" id="bkClient" value="${esc(state.bkClient)}" placeholder="Nombre">
     <label>Teléfono</label>
@@ -987,14 +1009,19 @@ function renderContratoTab(){
   const histMap={};
   for(const b of state.bookings){
     if(b.status!=='confirmed')continue;
-    if(!histMap[b.client])histMap[b.client]={count:0,total:0,last:''};
+    if(!histMap[b.client])histMap[b.client]={count:0,total:0,last:'',saldo:0};
     histMap[b.client].count++;
     histMap[b.client].total+=Number(b.income)||0;
     if(b.dateStart>histMap[b.client].last)histMap[b.client].last=b.dateStart;
+    if(!b.saldoPagado){
+      const s=(Number(b.income)||0)-(Number(b.anticipo)||0);
+      if(s>0)histMap[b.client].saldo+=s;
+    }
   }
   const histItems=Object.entries(histMap).sort((a,b)=>b[1].total-a[1].total).map(([name,h])=>`
     <div class="item">
       <div class="item-top"><div><div class="item-name">${esc(name)}</div><div class="item-meta">Último: ${h.last} · ${h.count} evento${h.count>1?'s':''}</div></div><span class="item-val">${fmtM(h.total)}</span></div>
+      ${h.saldo>0?`<div class="item-actions" style="border-top:none;padding-top:0;margin-top:8px"><span class="pill pill-warn">Debe ${fmtM(h.saldo)}</span></div>`:''}
     </div>`).join('');
   const sorted=[...state.bookings].filter(b=>b.status==='confirmed').sort((a,b)=>b.dateStart.localeCompare(a.dateStart));
   const items=sorted.map(b=>`<div class="item">
@@ -1103,6 +1130,13 @@ function bindEvents(){
 
   const bind=(id,key)=>{const el=document.getElementById(id);if(el)el.oninput=()=>state[key]=el.value;};
   bind('bkClient','bkClient');bind('bkTelefono','bkTelefono');bind('bkAnticipo','bkAnticipo');
+  const bkFreq=document.getElementById('bkFreqClient');
+  if(bkFreq)bkFreq.onchange=()=>{
+    const v=bkFreq.value;
+    if(!v){return;}
+    const found=getFrequentClients().find(c=>(c.telefono||c.client)===v);
+    if(found){state.bkClient=found.client;state.bkTelefono=found.telefono||'';render();}
+  };
   const bkT=document.getElementById('bkTexto');
   if(bkT)bkT.oninput=()=>{state.bkTexto=bkT.value;state.bkIncomeOverride=null;render();focusEnd('bkTexto');};
   const bkC=document.getElementById('bkCorona');
