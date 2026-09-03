@@ -643,6 +643,10 @@ function renderInventario(){
   </div>`).join('');
   const total=letras.length+numeros.length+custom.length;
   const enStock=[...letras,...numeros,...custom].filter(i=>i.total>0).length;
+  const costoPiezas=[...letras,...numeros,...custom].reduce((s,it)=>s+(Number(it.total)||0)*(Number(it.costoUnit)||0),0);
+  const costoMantenimiento=state.expenses.filter(e=>e.category==='Mantenimiento').reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const totalInvertido=costoPiezas+costoMantenimiento;
+  const conCosto=[...letras,...numeros,...custom].filter(i=>Number(i.costoUnit)>0).length;
   return`
   <div class="card fpanel">
     <div class="fpanel-head">
@@ -661,12 +665,31 @@ function renderInventario(){
     </div>
   </div>
   <div class="card">
-    <div class="card-title">Actualizar cantidad</div>
+    <div class="card-title">💰 Inversión total</div>
+    <div class="card-sub">Piezas (cantidad × costo) + gastos de Mantenimiento registrados en Finanzas</div>
+    <div class="stat-grid">
+      <div class="stat neutral"><div class="lbl">Piezas</div><div class="val">${fmtM(costoPiezas)}</div></div>
+      <div class="stat warn"><div class="lbl">Mantenimiento</div><div class="val">${fmtM(costoMantenimiento)}</div></div>
+    </div>
+    <div class="stat profit" style="margin-bottom:4px"><div class="lbl">Total invertido</div><div class="val">${fmtM(totalInvertido)}</div></div>
+    ${conCosto<total?`<div class="msg msg-info" style="margin-top:12px;margin-bottom:0">${conCosto}/${total} piezas tienen costo. Usa "Precio base" abajo para ponerlo a todas de un jalón.</div>`:''}
+  </div>
+  <div class="card">
+    <div class="card-title">Precio base para letras y números</div>
+    <div class="card-sub">Si casi todas cuestan lo mismo, ponlo aquí una vez y aplícalo a todas. Las que sean diferentes las ajustas individualmente abajo.</div>
+    <label>Costo por pieza (letras y números)</label>
+    <input type="number" id="invBaseCost" min="0" placeholder="Ej. 350">
+    <button class="btn btn-ghost btn-block" id="invApplyBaseBtn">Aplicar a todas las letras y números</button>
+  </div>
+  <div class="card">
+    <div class="card-title">Actualizar cantidad o costo individual</div>
     <label>Pieza</label>
     <select id="invSel">${invOpts()}</select>
     ${state.invSelType==='otra'?'<label>Nombre</label><input type="text" id="invCustomName" placeholder="Ej. Corazón">':''}
     <label>Cantidad total</label>
     <input type="number" id="invQty" min="0" placeholder="0">
+    <label>Costo por unidad (opcional)</label>
+    <input type="number" id="invCosto" min="0" placeholder="Ej. 350" value="${(()=>{const it=state.invSelType==='otra'?null:state.inventory.find(i=>i.id===state.invSelValue);return it&&it.costoUnit?it.costoUnit:'';})()}">
     <button class="btn btn-primary btn-block" id="invSaveBtn">Guardar cantidad</button>
   </div>
   ${custom.length?`<div class="section-label">Accesorios</div><div class="list">${customItems}</div>`:''}`;
@@ -1110,17 +1133,28 @@ function sendWaRecordatorio(bookingId){
 function bindEvents(){
   const invSel=document.getElementById('invSel');
   if(invSel)invSel.onchange=()=>{const v=invSel.value;state.invSelType=v==='otra'?'otra':'letra';if(v!=='otra'){const[kind,val]=v.split(':');state.invSelKind=kind;state.invSelValue=val;}render();};
+  const invApplyBase=document.getElementById('invApplyBaseBtn');
+  if(invApplyBase)invApplyBase.onclick=()=>{
+    const val=parseFloat(document.getElementById('invBaseCost').value);
+    if(isNaN(val)||val<0)return alert('Escribe un costo válido.');
+    if(!confirm(`¿Aplicar ${fmtM(val)} como costo a las ${ALFABETO.length+NUMEROS.length} letras y números?`))return;
+    state.inventory.forEach(it=>{if(it.isLetter)it.costoUnit=val;});
+    saveData();render();
+  };
   const invSave=document.getElementById('invSaveBtn');
   if(invSave)invSave.onclick=()=>{
     const qty=parseInt(document.getElementById('invQty').value);
     if(isNaN(qty)||qty<0)return alert('Cantidad inválida');
+    const costoInput=document.getElementById('invCosto');
+    const costo=costoInput&&costoInput.value!==''?parseFloat(costoInput.value):null;
     const sel=document.getElementById('invSel').value;
     if(sel==='otra'){
       const name=document.getElementById('invCustomName')?.value.trim();
       if(!name)return alert('Escribe el nombre');
       const ex=state.inventory.find(i=>!i.isLetter&&i.name.toLowerCase()===name.toLowerCase());
-      if(ex)ex.total=qty;else state.inventory.push({id:uid(),name,total:qty,isLetter:false});
-    }else{const[,val]=sel.split(':');const it=state.inventory.find(i=>i.id===val);if(it)it.total=qty;}
+      if(ex){ex.total=qty;if(costo!==null)ex.costoUnit=costo;}
+      else state.inventory.push({id:uid(),name,total:qty,isLetter:false,costoUnit:costo||0});
+    }else{const[,val]=sel.split(':');const it=state.inventory.find(i=>i.id===val);if(it){it.total=qty;if(costo!==null)it.costoUnit=costo;}}
     saveData();render();
   };
   document.querySelectorAll('[data-editqty]').forEach(b=>b.onclick=()=>{
