@@ -562,6 +562,7 @@ function renderDashboard(){
         <span class="pill ${days===0?'pill-bad':days===1?'pill-warn':'pill-ok'}">${label}</span>
       </div>
       <div class="item-actions">
+        <button class="btn btn-primary btn-sm" data-viewbooking="${b.id}">🔍 Ver detalles</button>
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank" rel="noopener">📅 Calendar</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬 Recordar</button>
       </div>
@@ -1176,6 +1177,7 @@ function bindEvents(){
   };
   document.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=()=>{const bk=state.bookings.find(x=>x.id===b.dataset.pagado);if(bk){bk.saldoPagado=true;saveData();render();}});
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
+  document.querySelectorAll('[data-viewbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.viewbooking));
   document.querySelectorAll('[data-cot-conv]').forEach(b=>b.onclick=()=>convertCotizacion(b.dataset.cotConv));
   document.querySelectorAll('[data-cot-rej]').forEach(b=>b.onclick=()=>{const c=state.cotizaciones.find(x=>x.id===b.dataset.cotRej);if(c){c.status='rechazada';saveData();render();}});
   document.querySelectorAll('[data-cot-del]').forEach(b=>b.onclick=()=>{if(confirm('¿Eliminar cotización?')){state.cotizaciones=state.cotizaciones.filter(c=>c.id!==b.dataset.cotDel);saveData();render();}});
