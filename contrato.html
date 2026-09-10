@@ -387,89 +387,109 @@ $('btnLimpiar').addEventListener('click', () => {
   setTimeout(()=>$('estado').textContent='', 2000);
 });
 
+// ── Generación del PDF: siempre 2 hojas máximo, mismo resultado en celular y PC ──
+const PDF_ANCHO_HOJA = 720;   // ancho fijo de captura (evita que el diseño móvil alargue el PDF)
+const PDF_MARGEN_Y   = 16;    // pt
+
+function crearHojaParaPDF() {
+  const original = $('hoja');
+  const wrap = document.createElement('div');
+  wrap.id = 'hojaPdfWrap';
+  wrap.style.cssText = 'position:absolute;left:-10000px;top:0;width:' + PDF_ANCHO_HOJA + 'px;background:#ffffff;';
+  const clon = original.cloneNode(true);
+  clon.id = 'hojaPdf';
+  clon.style.width = PDF_ANCHO_HOJA + 'px';
+  clon.style.maxWidth = 'none';
+  clon.style.padding = '40px 56px 36px';
+  clon.style.boxShadow = 'none';
+  clon.style.margin = '0';
+  wrap.appendChild(clon);
+  document.body.appendChild(wrap);
+  return { wrap, clon };
+}
+
 $('btnPdf').addEventListener('click', async () => {
   const btn = $('btnPdf'), estado = $('estado');
   btn.disabled = true; btn.textContent = 'Generando PDF...'; estado.textContent = '';
+  let wrap = null;
   try {
-    const hoja = $('hoja');
-    const domW = hoja.offsetWidth;
+    const ref = crearHojaParaPDF();
+    wrap = ref.wrap;
+    const hoja = ref.clon;
+    await new Promise(r => setTimeout(r, 60)); // dar tiempo a que apliquen los estilos
+
     const scale = 2.5;
-    const canvas = await html2canvas(hoja, { scale, useCORS: true, backgroundColor: '#ffffff' });
+    const canvas = await html2canvas(hoja, {
+      scale,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      windowWidth: 1200,
+      windowHeight: Math.max(hoja.scrollHeight + 200, 1200)
+    });
+
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
-    const marginY = 20;
-    const imgW = pageW;
-    const ptPerPx = imgW / canvas.width;
-    const usablePx = (pageH - marginY * 2) / ptPerPx;
+    const usableH = pageH - PDF_MARGEN_Y * 2;
+    const ptPerPx = pageW / canvas.width;
+    const totalH = canvas.height;
 
-    // Cortes seguros entre bloques (.bloque)
-    const bloques = Array.from(hoja.querySelectorAll(':scope > .bloque'));
+    // Puntos de corte seguros: solo entre bloques, nunca a media cláusula
     const hojaTop = hoja.getBoundingClientRect().top;
-    const limits = bloques.map(el => {
+    const limites = Array.from(hoja.querySelectorAll(':scope > .bloque')).map(el => {
       const r = el.getBoundingClientRect();
       return { top: (r.top - hojaTop) * scale, bottom: (r.bottom - hojaTop) * scale };
     });
 
-    const cuts = [0];
-    const totalH = canvas.height;
-    if (totalH <= usablePx) {
-      // Cabe en una sola página
-      cuts.push(totalH);
-    } else if (totalH <= usablePx * 2) {
-      // Cabe en 2 páginas: reparte el contenido de forma equilibrada,
-      // cortando en el límite de bloque más cercano a la mitad.
-      const target = totalH / 2;
-      let bestCut = limits[0] ? limits[0].top : totalH / 2;
-      let bestDiff = Infinity;
-      for (let i = 1; i < limits.length; i++) {
-        const candidate = limits[i].top;
-        if (candidate <= 0 || candidate >= totalH) continue;
-        const diff = Math.abs(candidate - target);
-        if (diff < bestDiff) { bestDiff = diff; bestCut = candidate; }
-      }
-      cuts.push(bestCut);
-      cuts.push(totalH);
+    let cortes;
+    if (totalH * ptPerPx <= usableH) {
+      cortes = [0, totalH];                 // cabe en una sola hoja
     } else {
-      // Más de 2 páginas: empaqueta al máximo por página.
-      let pageStart = 0;
-      for (let i = 0; i < limits.length; i++) {
-        if (limits[i].bottom - pageStart > usablePx) {
-          if (limits[i].top - pageStart > 0 && i > 0) {
-            cuts.push(limits[i].top);
-            pageStart = limits[i].top;
-          }
-        }
+      const objetivo = totalH / 2;          // partir lo más cerca posible de la mitad
+      let mejor = null, mejorDif = Infinity;
+      for (const l of limites) {
+        const c = l.top;
+        if (c <= 0 || c >= totalH) continue;
+        const dif = Math.abs(c - objetivo);
+        if (dif < mejorDif) { mejorDif = dif; mejor = c; }
       }
-      cuts.push(totalH);
+      cortes = [0, mejor === null ? objetivo : mejor, totalH];
     }
 
-    for (let p = 0; p < cuts.length - 1; p++) {
-      const sy = Math.round(cuts[p]);
-      const sh = Math.round(cuts[p+1] - cuts[p]);
+    // Si alguna hoja sigue siendo más alta que la página, se reduce todo por igual
+    let maxTramo = 0;
+    for (let p = 0; p < cortes.length - 1; p++) maxTramo = Math.max(maxTramo, cortes[p + 1] - cortes[p]);
+    const ajuste = Math.min(1, usableH / (maxTramo * ptPerPx));
+    const anchoDibujo = pageW * ajuste;
+    const xDibujo = (pageW - anchoDibujo) / 2;
+
+    for (let p = 0; p < cortes.length - 1; p++) {
+      const sy = Math.round(cortes[p]);
+      const sh = Math.round(cortes[p + 1] - cortes[p]);
       if (sh <= 0) continue;
-      const slice = document.createElement('canvas');
-      slice.width = canvas.width; slice.height = sh;
-      const ctx = slice.getContext('2d');
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,slice.width,slice.height);
+      const tramo = document.createElement('canvas');
+      tramo.width = canvas.width; tramo.height = sh;
+      const ctx = tramo.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, tramo.width, tramo.height);
       ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
-      const imgData = slice.toDataURL('image/jpeg', 0.95);
-      const sliceH_pt = sh * ptPerPx;
+      const imgData = tramo.toDataURL('image/jpeg', 0.95);
+      const altoDibujo = sh * ptPerPx * ajuste;
       if (p > 0) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, marginY, imgW, sliceH_pt);
+      pdf.addImage(imgData, 'JPEG', xDibujo, PDF_MARGEN_Y, anchoDibujo, altoDibujo);
     }
 
-    const nombre = $('nombreCliente').value.trim().replace(/[^a-zA-Z0-9 ]/g,'').replace(/\s+/g,'_') || 'Cliente';
+    const nombre = $('nombreCliente').value.trim().replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_') || 'Cliente';
     const fecha = $('fechaEvento').value || 'evento';
     pdf.save(`Contrato_${nombre}_${fecha}.pdf`);
     estado.textContent = 'PDF descargado ✓';
-  } catch(err) {
+  } catch (err) {
     console.error(err);
     estado.textContent = 'Error al generar el PDF. Intenta de nuevo.';
   } finally {
+    if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
     btn.disabled = false; btn.textContent = 'Descargar PDF del contrato';
-    setTimeout(()=>$('estado').textContent='', 3000);
+    setTimeout(() => $('estado').textContent = '', 3000);
   }
 });
 </script>

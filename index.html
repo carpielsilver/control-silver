@@ -433,12 +433,40 @@ function letterBD(texto){
 }
 
 // ─── GOOGLE CALENDAR ───────────────────────────────────
+function esLetraONum(id){return ALFABETO.includes(id)||NUMEROS.includes(id);}
+function letrasDeReserva(b){
+  if(b.texto&&String(b.texto).trim())return String(b.texto).trim().toUpperCase();
+  const ls=(b.items||[]).filter(i=>esLetraONum(i.itemId));
+  if(!ls.length)return'Renta';
+  return ls.map(i=>i.qty>1?`${i.itemId}x${i.qty}`:i.itemId).join('');
+}
+function ubicacionCorta(b){
+  const u=(b.lugar&&String(b.lugar).trim())||(b.direccion&&String(b.direccion).trim())||'';
+  return u||'Sin ubicación';
+}
+function tituloEvento(b){return`${letrasDeReserva(b)} — ${ubicacionCorta(b)}`;}
+function detalleEvento(b){
+  const total=Number(b.income)||0,ant=Number(b.anticipo)||0,rest=total-ant;
+  const extras=(b.items||[]).filter(i=>!esLetraONum(i.itemId))
+    .map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return`${inv?inv.name:i.itemId}×${i.qty}`;}).join(', ');
+  return[
+    `Cliente: ${b.client||'—'}`,
+    `Letras: ${letrasDeReserva(b)}`,
+    extras?`Extras: ${extras}`:null,
+    `Ubicación: ${b.direccion||'—'}`,
+    `Teléfono: ${b.telefono||'—'}`,
+    `Costo total: ${fmtM(total)}`,
+    `Anticipo: ${fmtM(ant)}`,
+    `Restante: ${fmtM(rest)}`,
+    (b.horaEntrega||b.horaRecoleccion)?`Entrega: ${b.horaEntrega||'—'} · Recolección: ${b.horaRecoleccion||'—'}`:null,
+    b.notes?`Notas: ${b.notes}`:null
+  ].filter(Boolean).join('\n');
+}
 function buildGCalUrl(b){
   const start=b.dateStart.replace(/-/g,'');
   const end=addDays(b.dateEnd,1).replace(/-/g,'');
-  const names=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return`${inv?inv.name:i.itemId}×${i.qty}`;}).join(', ');
-  const title=encodeURIComponent(`Evento letras — ${b.client}`);
-  const det=encodeURIComponent(`Cliente: ${b.client}\nTel: ${b.telefono||'—'}\nLetras: ${names}\nCobro: ${fmtM(b.income)}${b.notes?'\n'+b.notes:''}`);
+  const title=encodeURIComponent(tituloEvento(b));
+  const det=encodeURIComponent(detalleEvento(b));
   const loc=encodeURIComponent(b.direccion||'');
   return`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${det}&location=${loc}`;
 }
@@ -913,9 +941,10 @@ function renderCalendario(){
     detail=`<div class="section-label">${state.calSelectedDate}</div><div class="list">`;
     if(cov.length){
       detail+=cov.map(b=>{
-        const names=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return`${inv?esc(inv.name):'?'}×${i.qty}`;}).join(' ');
+        const total=Number(b.income)||0,ant=Number(b.anticipo)||0,rest=total-ant;
+        const horas=(b.horaEntrega||b.horaRecoleccion)?` · ${b.horaEntrega||'—'}→${b.horaRecoleccion||'—'}`:'';
         return`<div class="item">
-          <div class="item-top"><div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${names} · ${fmtM(b.income)}</div></div></div>
+          <div class="item-top"><div><div class="item-name">${esc(tituloEvento(b))}</div><div class="item-meta">${esc(b.client)}${b.telefono?' · '+esc(b.telefono):''}${horas}<br>Total ${fmtM(total)} · Anticipo ${fmtM(ant)} · Restante ${fmtM(rest)}</div></div></div>
           <div class="item-actions"><a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank">📅 Calendar</a><button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬</button></div>
         </div>`;
       }).join('');
@@ -1421,7 +1450,7 @@ function editBooking(bookingId){
   const letraItems=b.items.filter(i=>ALFABETO.includes(i.itemId)||NUMEROS.includes(i.itemId));
   let texto='';
   for(const it of letraItems)texto+=it.itemId.repeat(it.qty);
-  state.bkTexto=texto;
+  state.bkTexto=(b.texto&&String(b.texto).trim())?String(b.texto):texto;
   state.bkCorona=false; // corona ya no se rastrea por separado en items; se puede reajustar el costo manual
   state.bkDireccion=b.direccion||'';state.bkKm='';state.bkGeoStatus='idle';state.bkLugar='';
   if(b.direccion){const m=geoLugar(b.direccion);if(m){state.bkKm=String(m.km);state.bkLugar=m.nombre;state.bkGeoStatus='ok';}}
@@ -1461,7 +1490,7 @@ function tryReservar(){
   if(state.editingBookingId){
     const b=state.bookings.find(x=>x.id===state.editingBookingId);
     if(b){
-      Object.assign(b,{client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes});
+      Object.assign(b,{client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,texto:(state.bkTexto||'').trim().toUpperCase(),lugar:state.bkLugar||'',direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes});
     }
     state.editingBookingId=null;
     state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
@@ -1470,7 +1499,7 @@ function tryReservar(){
     saveData();render();
     return;
   }
-  const nueva={id:uid(),client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes,status:'confirmed',saldoPagado:false};
+  const nueva={id:uid(),client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,texto:(state.bkTexto||'').trim().toUpperCase(),lugar:state.bkLugar||'',direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes,status:'confirmed',saldoPagado:false};
   state.bookings.push(nueva);
   state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
   state.bkGeoStatus='idle';state.bkLugar='';state.bkHoraEntrega='';state.bkHoraRecoleccion='';state.bkAnticipo='';state.bkMetodo='';state.bkNotes='';state.bkIncomeOverride=null;state.bookingItemSel={};
