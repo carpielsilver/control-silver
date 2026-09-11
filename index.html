@@ -414,6 +414,15 @@ function todayISO(){return new Date().toISOString().slice(0,10);}
 function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML;}
 function allCats(){return[...new Set([...DEF_CATS,...state.expCategories])];}
 function addDays(iso,n){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+function semanaActual(){
+  const hoy=new Date(todayISO()+'T00:00:00');
+  const dow=hoy.getDay(); // 0=domingo..6=sábado
+  const offsetLunes=dow===0?-6:1-dow;
+  const lunes=new Date(hoy);lunes.setDate(hoy.getDate()+offsetLunes);
+  const domingo=new Date(lunes);domingo.setDate(lunes.getDate()+6);
+  return{inicio:lunes.toISOString().slice(0,10),fin:domingo.toISOString().slice(0,10)};
+}
+function tocaSemana(b,semana){return b.dateStart<=semana.fin&&b.dateEnd>=semana.inicio;}
 
 // ─── COTIZADOR ─────────────────────────────────────────
 function getPPU(n){if(n===1)return 400;if(n<=3)return 350;if(n<=6)return 300;return 290;}
@@ -477,7 +486,7 @@ function ubicacionCorta(b){
   const u=(b.lugar&&String(b.lugar).trim())||(b.direccion&&String(b.direccion).trim())||'';
   return u||'Sin ubicación';
 }
-function tituloEvento(b){return`${letrasDeReserva(b)} — ${ubicacionCorta(b)}`;}
+function tituloEvento(b){return`${letrasDeReserva(b)} — ${b.client||'Cliente'}`;}
 function detalleEvento(b){
   const total=Number(b.income)||0,ant=Number(b.anticipo)||0,rest=total-ant;
   const extras=extrasDeReserva(b);
@@ -609,24 +618,26 @@ function renderDashboard(){
     <div class="greet-date">${diaNombre.charAt(0).toUpperCase()+diaNombre.slice(1)}, ${fechaLarga}</div>
   </div>`;
   const today=todayISO();
-  const in7=addDays(today,7);
-  const proximos=state.bookings.filter(b=>b.status==='confirmed'&&b.dateStart>=today&&b.dateStart<=in7)
+  const semana=semanaActual();
+  const rangoSemana=`${semana.inicio.slice(8,10)}/${semana.inicio.slice(5,7)} al ${semana.fin.slice(8,10)}/${semana.fin.slice(5,7)}`;
+
+  const eventosSemana=state.bookings.filter(b=>b.status==='confirmed'&&tocaSemana(b,semana))
     .sort((a,b)=>a.dateStart.localeCompare(b.dateStart));
-  const pendientes=state.bookings.filter(b=>b.status==='confirmed'&&!b.saldoPagado&&(Number(b.income)||0)-(Number(b.anticipo)||0)>0)
-    .sort((a,b)=>a.dateStart.localeCompare(b.dateStart));
+  const pendientesSemana=eventosSemana.filter(b=>!b.saldoPagado&&(Number(b.income)||0)-(Number(b.anticipo)||0)>0);
   const enProceso=state.projects.filter(p=>p.status==='En proceso');
+
+  const semIncome=eventosSemana.reduce((s,b)=>s+(Number(b.income)||0),0);
   const mesKey=today.slice(0,7);
   const mesIncome=state.bookings.filter(b=>b.status==='confirmed'&&b.dateStart.startsWith(mesKey)).reduce((s,b)=>s+(Number(b.income)||0),0);
   const mesExpense=state.expenses.filter(e=>e.date.startsWith(mesKey)).reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const totalSaldo=pendientes.reduce((s,b)=>s+(Number(b.income)||0)-(Number(b.anticipo)||0),0);
+  const porCobrarSemana=pendientesSemana.reduce((s,b)=>s+(Number(b.income)||0)-(Number(b.anticipo)||0),0);
 
-  const proxHtml=proximos.length?`<div class="list">`+proximos.map(b=>{
+  const proxHtml=eventosSemana.length?`<div class="list">`+eventosSemana.map(b=>{
     const days=Math.ceil((new Date(b.dateStart+'T00:00:00')-new Date(today+'T00:00:00'))/(86400000));
-    const label=days===0?'HOY':days===1?'MAÑANA':`en ${days} días`;
-    const names=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return inv?inv.name:i.itemId;}).join('');
+    const label=days===0?'HOY':days===1?'MAÑANA':days<0?'en curso':`en ${days} días`;
     return`<div class="item">
       <div class="item-top">
-        <div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${b.dateStart} · ${names}${b.horaEntrega?' · '+b.horaEntrega:''}</div></div>
+        <div><div class="item-name">${esc(letrasDeReserva(b))} — ${esc(b.client)}</div><div class="item-meta">${b.dateStart} · ${esc(ubicacionCorta(b))}${b.horaEntrega?' · '+b.horaEntrega:''}</div></div>
         <span class="pill ${days===0?'pill-bad':days===1?'pill-warn':'pill-ok'}">${label}</span>
       </div>
       <div class="item-actions">
@@ -635,18 +646,18 @@ function renderDashboard(){
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬 Recordar</button>
       </div>
     </div>`;
-  }).join('')+`</div>`:`<div class="empty">Sin eventos en los próximos 7 días.</div>`;
+  }).join('')+`</div>`:`<div class="empty">Sin eventos esta semana.</div>`;
 
-  const saldoHtml=pendientes.length?`<div class="list">`+pendientes.map(b=>{
-    const saldo=(Number(b.income)||0)-(Number(b.anticipo)||0);
+  const saldoHtml=pendientesSemana.length?`<div class="list">`+pendientesSemana.map(b=>{
+    const total=Number(b.income)||0,ant=Number(b.anticipo)||0,saldo=total-ant;
     return`<div class="item">
       <div class="item-top">
-        <div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${b.dateStart}</div></div>
+        <div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${b.dateStart} · Anticipo ${fmtM(ant)}</div></div>
         <span class="item-val">${fmtM(saldo)}</span>
       </div>
       <div class="item-actions"><button class="btn btn-warn btn-sm" data-pagado="${b.id}">Marcar pagado ✓</button></div>
     </div>`;
-  }).join('')+`</div>`:`<div class="empty" style="color:#9dc491">✓ Sin saldos pendientes</div>`;
+  }).join('')+`</div>`:`<div class="empty" style="color:#9dc491">✓ Sin saldos pendientes esta semana</div>`;
 
   const procHtml=enProceso.length?`<div class="list">`+enProceso.map(p=>`
     <div class="item">
@@ -659,18 +670,19 @@ function renderDashboard(){
   return`
   ${greetHtml}
   <div class="card">
-    <div class="card-title">Próximos eventos</div>
-    <div class="card-sub">Los siguientes 7 días</div>
+    <div class="card-title">Eventos de esta semana</div>
+    <div class="card-sub">${rangoSemana}</div>
     ${proxHtml}
   </div>
   <div class="stat-grid">
+    <div class="stat income"><div class="lbl">Ingresos de la semana</div><div class="val">${fmtM(semIncome)}</div></div>
     <div class="stat income"><div class="lbl">Ingresos del mes</div><div class="val">${fmtM(mesIncome)}</div></div>
     <div class="stat expense"><div class="lbl">Gastos del mes</div><div class="val">${fmtM(mesExpense)}</div></div>
-    <div class="stat profit"><div class="lbl">Utilidad</div><div class="val">${fmtM(mesIncome-mesExpense)}</div></div>
-    <div class="stat warn"><div class="lbl">Por cobrar</div><div class="val">${fmtM(totalSaldo)}</div></div>
+    <div class="stat profit"><div class="lbl">Utilidad del mes</div><div class="val">${fmtM(mesIncome-mesExpense)}</div></div>
+    <div class="stat warn"><div class="lbl">Por cobrar (semana)</div><div class="val">${fmtM(porCobrarSemana)}</div></div>
   </div>
   <div class="card">
-    <div class="card-title">Saldos pendientes</div>
+    <div class="card-title">Saldos pendientes de la semana</div>
     ${saldoHtml}
   </div>
   <div class="card">
@@ -1145,6 +1157,11 @@ function renderCarpinteria(){
     <div class="stat neutral"><div class="lbl">Por cobrar</div><div class="val">${fmtM(ti-ta)}</div></div>
   </div>
   ${state.pjMsg?`<div class="msg msg-ok">${state.pjMsg}</div>`:''}
+  <div class="card">
+    <div class="card-title">Contrato en blanco</div>
+    <div class="card-sub">Ábrelo sin ligarlo a ningún proyecto y llénalo a mano — ya trae tus datos y tu firma.</div>
+    <a class="btn btn-contract btn-block" href="contrato-carpinteria.html" target="_blank">📄 Abrir contrato en blanco</a>
+  </div>
   <div class="section-label">Proyectos</div>
   <div class="list">${projItems}</div>
   <div class="card">
@@ -1201,19 +1218,14 @@ function renderContratoTab(){
   const histMap={};
   for(const b of state.bookings){
     if(b.status!=='confirmed')continue;
-    if(!histMap[b.client])histMap[b.client]={count:0,total:0,last:'',saldo:0};
+    if(!histMap[b.client])histMap[b.client]={count:0,total:0,last:''};
     histMap[b.client].count++;
     histMap[b.client].total+=Number(b.income)||0;
     if(b.dateStart>histMap[b.client].last)histMap[b.client].last=b.dateStart;
-    if(!b.saldoPagado){
-      const s=(Number(b.income)||0)-(Number(b.anticipo)||0);
-      if(s>0)histMap[b.client].saldo+=s;
-    }
   }
   const histItems=Object.entries(histMap).sort((a,b)=>b[1].total-a[1].total).map(([name,h])=>`
     <div class="item">
       <div class="item-top"><div><div class="item-name">${esc(name)}</div><div class="item-meta">Último: ${h.last} · ${h.count} evento${h.count>1?'s':''}</div></div><span class="item-val">${fmtM(h.total)}</span></div>
-      ${h.saldo>0?`<div class="item-actions" style="border-top:none;padding-top:0;margin-top:8px"><span class="pill pill-warn">Debe ${fmtM(h.saldo)}</span></div>`:''}
     </div>`).join('');
   const sorted=[...state.bookings].filter(b=>b.status==='confirmed').sort((a,b)=>b.dateStart.localeCompare(a.dateStart));
   const items=sorted.map(b=>`<div class="item">
@@ -1673,8 +1685,3 @@ loadData();
 </script>
 </body>
 </html>
-
-
-
-
-m
