@@ -464,6 +464,27 @@ function abonoWidget(b){
     <button class="btn btn-warn btn-sm" data-abonar="${b.id}" data-metodo="Tarjeta">💳 Abonar</button>
   </div>`;
 }
+// Pagos de antes del sistema de abonos que quedaron sin método (efectivo/tarjeta) asignado
+function abonosSinMetodo(b){return abonosDe(b).filter(a=>!a.metodo);}
+function fijarMetodoAbono(bookingId,entryId,metodo){
+  const b=state.bookings.find(x=>x.id===bookingId);if(!b)return;
+  if(!b.abonos)b.abonos=abonosDe(b);
+  const entry=b.abonos.find(a=>a.id===entryId);if(!entry)return;
+  entry.metodo=metodo;
+  saveData();render();
+}
+function corregirMetodoWidget(b){
+  const faltantes=abonosSinMetodo(b);
+  if(!faltantes.length)return'';
+  return`<div class="abono-row" style="flex-wrap:wrap;gap:8px">
+    <div style="width:100%;font-size:.8rem;color:var(--text-3)">¿Cómo te pagaron esto?</div>
+    ${faltantes.map(a=>`<div style="display:flex;align-items:center;gap:6px;width:100%">
+      <span class="mono" style="flex:1">${fmtM(a.monto)} · ${a.fecha}</span>
+      <button class="btn btn-warn btn-sm" data-fijarmetodo="${b.id}:${a.id}" data-metodo="Efectivo">💵 Efectivo</button>
+      <button class="btn btn-warn btn-sm" data-fijarmetodo="${b.id}:${a.id}" data-metodo="Tarjeta">💳 Tarjeta</button>
+    </div>`).join('')}
+  </div>`;
+}
 
 // ─── COTIZADOR ─────────────────────────────────────────
 function getPPU(n){if(n===1)return 400;if(n<=3)return 350;if(n<=6)return 300;return 290;}
@@ -927,6 +948,7 @@ function renderReservas(){
         <button class="btn btn-danger btn-sm" data-delbooking="${b.id}">🗑️ Eliminar</button>
       </div>
       ${abonoWidget(b)}
+      ${corregirMetodoWidget(b)}
     </div>`;
   }).join('');
 
@@ -1465,6 +1487,10 @@ function bindEvents(){
   });
   document.querySelectorAll('[data-metfiltro]').forEach(el=>el.onclick=()=>{
     state.dashFiltroMetodo=state.dashFiltroMetodo===el.dataset.metfiltro?null:el.dataset.metfiltro;render();
+  });
+  document.querySelectorAll('[data-fijarmetodo]').forEach(btn=>btn.onclick=()=>{
+    const[bookingId,entryId]=btn.dataset.fijarmetodo.split(':');
+    fijarMetodoAbono(bookingId,entryId,btn.dataset.metodo);
   });
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
   document.querySelectorAll('[data-viewbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.viewbooking));
