@@ -283,6 +283,8 @@ button:disabled{opacity:0.4;}
 .mat-add input{margin:0;padding:8px 9px;}
 .mat-add input[data-matname]{flex:1;min-width:0;}
 .mat-add input[type=number]{width:74px;text-align:right;font-family:var(--mono);}
+.abono-row{display:flex;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);}
+.abono-row input{margin:0;padding:8px 9px;width:90px;text-align:right;font-family:var(--mono);}
 .mat-precio{width:92px;margin:0;padding:7px 9px;text-align:right;font-family:var(--mono);}
 .q-total{border-top:1px solid rgba(217,154,78,0.25);margin-top:10px;padding-top:11px;display:flex;justify-content:space-between;align-items:center;}
 .q-total .ql{font-family:var(--serif);font-weight:600;font-size:0.95rem;color:var(--amber-2);}
@@ -405,7 +407,7 @@ let state={
   pjClient:'',pjNombre:'',pjTipo:'Mueble',pjPresupuesto:'',pjAnticipo:'',
   pjMateria:'',pjMano:'',pjStatus:'En espera',pjFechaInicio:'',pjFechaEntrega:'',pjNotas:'',pjMsg:null,
   matNombre:'',matUnidad:'pza',matPrecio:'',matBuscar:'',matImport:'',matMsg:null,
-  pjTelefono:'',pjDireccion:'',
+  pjTelefono:'',pjDireccion:'',dashFiltroMetodo:null,
 };
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
@@ -423,7 +425,45 @@ function semanaActual(){
   return{inicio:lunes.toISOString().slice(0,10),fin:domingo.toISOString().slice(0,10)};
 }
 function tocaSemana(b,semana){return b.dateStart<=semana.fin&&b.dateEnd>=semana.inicio;}
-function estaLiquidado(b){return !!b.saldoPagado||(Number(b.income)||0)-(Number(b.anticipo)||0)<=0;}
+function abonosDe(b){
+  if(b.abonos&&b.abonos.length)return b.abonos;
+  const legacy=[];
+  if(Number(b.anticipo)>0)legacy.push({id:'legacy-ant',fecha:b.dateStart,monto:Number(b.anticipo),metodo:b.metodo||''});
+  if(b.saldoPagado){
+    const rest=(Number(b.income)||0)-(Number(b.anticipo)||0);
+    if(rest>0)legacy.push({id:'legacy-saldo',fecha:b.dateStart,monto:rest,metodo:b.metodoSaldo||''});
+  }
+  return legacy;
+}
+function totalAbonado(b){return abonosDe(b).reduce((s,a)=>s+(Number(a.monto)||0),0);}
+function restanteDe(b){return Math.max(0,(Number(b.income)||0)-totalAbonado(b));}
+function estaLiquidado(b){return restanteDe(b)<=0;}
+function registrarAbono(id,monto,metodo){
+  const b=state.bookings.find(x=>x.id===id);if(!b)return;
+  monto=Math.round(Number(monto)||0);
+  if(monto<=0)return;
+  if(!b.abonos)b.abonos=abonosDe(b);
+  b.abonos.push({id:uid(),fecha:todayISO(),monto,metodo:metodo||''});
+  saveData();render();
+}
+function abonosEnRango(ini,fin){
+  const out=[];
+  for(const b of state.bookings){
+    if(b.status!=='confirmed')continue;
+    for(const a of abonosDe(b))if(a.fecha>=ini&&a.fecha<=fin)out.push({...a,client:b.client});
+  }
+  return out;
+}
+// Fila para abonar (parcial o total) directo desde una tarjeta de reserva
+function abonoWidget(b){
+  const rest=restanteDe(b);
+  if(rest<=0)return'';
+  return`<div class="abono-row">
+    <input type="number" min="1" max="${rest}" value="${rest}" class="abono-input" data-abonoinput="${b.id}">
+    <button class="btn btn-warn btn-sm" data-abonar="${b.id}" data-metodo="Efectivo">💵 Abonar</button>
+    <button class="btn btn-warn btn-sm" data-abonar="${b.id}" data-metodo="Tarjeta">💳 Abonar</button>
+  </div>`;
+}
 
 // ─── COTIZADOR ─────────────────────────────────────────
 function getPPU(n){if(n===1)return 400;if(n<=3)return 350;if(n<=6)return 300;return 290;}
@@ -489,7 +529,7 @@ function ubicacionCorta(b){
 }
 function tituloEvento(b){return`${letrasDeReserva(b)} — ${b.client||'Cliente'}`;}
 function detalleEvento(b){
-  const total=Number(b.income)||0,ant=Number(b.anticipo)||0,rest=total-ant;
+  const total=Number(b.income)||0,ant=totalAbonado(b),rest=restanteDe(b);
   const extras=extrasDeReserva(b);
   return[
     `Cliente: ${b.client||'—'}`,
@@ -586,7 +626,7 @@ function buildContratoUrl(b){
   const letras=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);const n=inv?inv.name:i.itemId;return i.qty>1?`${n}(${i.qty})`:n;}).join(' ');
   const p=new URLSearchParams({nombre:b.client||'',telefono:b.telefono||'',fechaEvento:b.dateStart||'',
     direccion:b.direccion||'',letras,horaEntrega:b.horaEntrega||'',horaRecoleccion:b.horaRecoleccion||'',
-    costo:b.income||'',anticipo:b.anticipo||'',metodo:b.metodo||''});
+    costo:b.income||'',anticipo:totalAbonado(b)||'',metodo:b.metodo||''});
   return'contrato.html?'+p.toString();
 }
 
@@ -624,57 +664,34 @@ function renderDashboard(){
 
   const todosSemana=state.bookings.filter(b=>b.status==='confirmed'&&tocaSemana(b,semana));
   const eventosSemana=todosSemana.filter(b=>!estaLiquidado(b)).sort((a,b)=>a.dateStart.localeCompare(b.dateStart));
-  const pendientesSemana=eventosSemana;
   const enProceso=state.projects.filter(p=>p.status==='En proceso');
 
   const semIncome=todosSemana.reduce((s,b)=>s+(Number(b.income)||0),0);
-  const porCobrarSemana=pendientesSemana.reduce((s,b)=>s+(Number(b.income)||0)-(Number(b.anticipo)||0),0);
+  const porCobrarSemana=eventosSemana.reduce((s,b)=>s+restanteDe(b),0);
 
-  let efectivoSemana=0,tarjetaSemana=0;
-  for(const b of todosSemana){
-    const ant=Number(b.anticipo)||0;
-    if(ant>0){
-      if(b.metodo==='Efectivo')efectivoSemana+=ant;
-      else if(b.metodo==='Tarjeta'||b.metodo==='Transferencia')tarjetaSemana+=ant;
-    }
-    if(b.saldoPagado){
-      const saldo=(Number(b.income)||0)-ant;
-      if(saldo>0){
-        if(b.metodoSaldo==='Efectivo')efectivoSemana+=saldo;
-        else if(b.metodoSaldo==='Tarjeta')tarjetaSemana+=saldo;
-      }
-    }
-  }
-
-  const botonesPago=(b)=>`
-    <button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Efectivo">💵 Pagó efectivo</button>
-    <button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Tarjeta">💳 Pagó tarjeta</button>`;
+  // El dinero que entra se cuenta por la fecha real del abono, no por la fecha del evento
+  const abonosSemana=abonosEnRango(semana.inicio,semana.fin);
+  const efectivoSemana=abonosSemana.filter(a=>a.metodo==='Efectivo').reduce((s,a)=>s+(Number(a.monto)||0),0);
+  const tarjetaSemana=abonosSemana.filter(a=>a.metodo==='Tarjeta'||a.metodo==='Transferencia').reduce((s,a)=>s+(Number(a.monto)||0),0);
+  const detalleMetodo=state.dashFiltroMetodo?abonosSemana.filter(a=>state.dashFiltroMetodo==='Efectivo'?a.metodo==='Efectivo':(a.metodo==='Tarjeta'||a.metodo==='Transferencia')):[];
 
   const proxHtml=eventosSemana.length?`<div class="list">`+eventosSemana.map(b=>{
     const days=Math.ceil((new Date(b.dateStart+'T00:00:00')-new Date(today+'T00:00:00'))/(86400000));
-    const label=days===0?'HOY':days===1?'MAÑANA':days<0?'en curso':`en ${days} días`;
+    const vencido=b.dateEnd<today;
+    const label=vencido?'⚠️ Venció':days===0?'HOY':days===1?'MAÑANA':days<0?'en curso':`en ${days} días`;
+    const pillClass=vencido?'pill-bad':days===0?'pill-bad':days===1?'pill-warn':'pill-ok';
+    const total=Number(b.income)||0,rest=restanteDe(b);
     return`<div class="item">
       <div class="item-top">
-        <div><div class="item-name">${esc(letrasDeReserva(b))} — ${esc(b.client)}</div><div class="item-meta">${b.dateStart} · ${esc(ubicacionCorta(b))}${b.horaEntrega?' · '+b.horaEntrega:''}</div></div>
-        <span class="pill ${days===0?'pill-bad':days===1?'pill-warn':'pill-ok'}">${label}</span>
+        <div><div class="item-name">${esc(letrasDeReserva(b))} — ${esc(b.client)}</div><div class="item-meta">${b.dateStart} · ${esc(ubicacionCorta(b))}${b.horaEntrega?' · '+b.horaEntrega:''}<br>Debe ${fmtM(rest)} de ${fmtM(total)} total</div></div>
+        <span class="pill ${pillClass}">${label}</span>
       </div>
       <div class="item-actions">
         <button class="btn btn-primary btn-sm" data-viewbooking="${b.id}">🔍 Ver detalles</button>
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank" rel="noopener">📅 Calendar</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬 Recordar</button>
-        ${botonesPago(b)}
       </div>
-    </div>`;
-  }).join('')+`</div>`:`<div class="empty">Sin eventos pendientes esta semana.</div>`;
-
-  const saldoHtml=pendientesSemana.length?`<div class="list">`+pendientesSemana.map(b=>{
-    const total=Number(b.income)||0,ant=Number(b.anticipo)||0,saldo=total-ant;
-    return`<div class="item">
-      <div class="item-top">
-        <div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${b.dateStart} · Anticipo ${fmtM(ant)}</div></div>
-        <span class="item-val">${fmtM(saldo)}</span>
-      </div>
-      <div class="item-actions">${botonesPago(b)}</div>
+      ${abonoWidget(b)}
     </div>`;
   }).join('')+`</div>`:`<div class="empty" style="color:#9dc491">✓ Sin saldos pendientes esta semana</div>`;
 
@@ -690,7 +707,7 @@ function renderDashboard(){
   ${greetHtml}
   <div class="card">
     <div class="card-title">Eventos de esta semana</div>
-    <div class="card-sub">${rangoSemana} · al marcar pagado, el evento se quita de esta lista</div>
+    <div class="card-sub">${rangoSemana} · al abonar el resto, el evento se quita de esta lista</div>
     ${proxHtml}
   </div>
   <div class="stat-grid">
@@ -699,15 +716,16 @@ function renderDashboard(){
   </div>
   <div class="card">
     <div class="card-title">Dinero que entra — esta semana</div>
-    <div class="card-sub">Anticipos y saldos ya cobrados de eventos de esta semana</div>
+    <div class="card-sub">Toca efectivo o tarjeta para ver qué eventos lo pagaron así</div>
     <div class="stat-grid">
-      <div class="stat income"><div class="lbl">💵 Efectivo</div><div class="val">${fmtM(efectivoSemana)}</div></div>
-      <div class="stat income"><div class="lbl">💳 Tarjeta</div><div class="val">${fmtM(tarjetaSemana)}</div></div>
+      <div class="stat income" data-metfiltro="Efectivo" style="cursor:pointer">
+        <div class="lbl">💵 Efectivo${state.dashFiltroMetodo==='Efectivo'?' ▲':''}</div><div class="val">${fmtM(efectivoSemana)}</div>
+      </div>
+      <div class="stat income" data-metfiltro="Tarjeta" style="cursor:pointer">
+        <div class="lbl">💳 Tarjeta${state.dashFiltroMetodo==='Tarjeta'?' ▲':''}</div><div class="val">${fmtM(tarjetaSemana)}</div>
+      </div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">Saldos pendientes de la semana</div>
-    ${saldoHtml}
+    ${state.dashFiltroMetodo?`<div class="list" style="margin-top:10px">${detalleMetodo.length?detalleMetodo.map(a=>`<div class="item"><div class="item-top"><div><div class="item-name">${esc(a.client)}</div><div class="item-meta">${a.fecha}</div></div><span class="item-val">${fmtM(a.monto)}</span></div></div>`).join(''):'<div class="empty">Sin abonos por ese medio esta semana.</div>'}</div>`:''}
   </div>
   <div class="card">
     <div class="card-title">Carpintería en proceso</div>
@@ -859,8 +877,8 @@ function getFrequentClients(){
     if(!key)continue;
     if(!map[key])map[key]={client:b.client,telefono:b.telefono,count:0,saldo:0};
     map[key].count++;
-    if(b.status==='confirmed'&&!b.saldoPagado){
-      const s=(Number(b.income)||0)-(Number(b.anticipo)||0);
+    if(b.status==='confirmed'){
+      const s=restanteDe(b);
       if(s>0)map[key].saldo+=s;
     }
   }
@@ -868,6 +886,8 @@ function getFrequentClients(){
 }
 
 function renderReservas(){
+  const editBk=state.editingBookingId?state.bookings.find(x=>x.id===state.editingBookingId):null;
+  const yaAbonado=!!(editBk&&editBk.abonos&&editBk.abonos.length);
   const bd=letterBD(state.bkTexto);
   const km=parseFloat(state.bkKm)||0;
   const res=calcQ(bd.total,state.bkCorona,km);
@@ -886,8 +906,7 @@ function renderReservas(){
   }).join('');
   const sorted=[...state.bookings].sort((a,b)=>b.dateStart.localeCompare(a.dateStart));
   const bkItems=sorted.map(b=>{
-    const saldo=(Number(b.income)||0)-(Number(b.anticipo)||0);
-    const pagado=b.saldoPagado;
+    const saldo=restanteDe(b);
     const dateLabel=b.dateStart===b.dateEnd?b.dateStart:`${b.dateStart}→${b.dateEnd}`;
     const names=b.items.map(i=>{const inv=state.inventory.find(x=>x.id===i.itemId);return`${inv?esc(inv.name):'?'}×${i.qty}`;}).join(' ');
     return`<div class="item">
@@ -897,17 +916,17 @@ function renderReservas(){
       </div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         <span class="pill ${b.status==='confirmed'?'pill-ok':'pill-bad'}">${b.status==='confirmed'?'Confirmada':'Cancelada'}</span>
-        ${saldo<=0||pagado?`<span class="pill pill-ok">Pagado ✓</span>`:`<span class="pill pill-warn">${fmtM(saldo)} pendiente</span>`}
+        ${saldo<=0?`<span class="pill pill-ok">Pagado ✓</span>`:`<span class="pill pill-warn">${fmtM(saldo)} pendiente</span>`}
       </div>
       <div class="item-actions">
         <a class="btn btn-contract btn-sm" href="${buildContratoUrl(b)}" target="_blank">📄 Contrato</a>
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank">📅</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬</button>
-        ${!b.saldoPagado&&saldo>0?`<button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Efectivo">💵 Cobrado efectivo</button><button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Tarjeta">💳 Cobrado tarjeta</button>`:''}
         <button class="btn btn-ghost btn-sm" data-editbooking="${b.id}">✏️ Editar</button>
         ${b.status==='confirmed'?`<button class="btn btn-danger btn-sm" data-cancel="${b.id}">Cancelar</button>`:''}
         <button class="btn btn-danger btn-sm" data-delbooking="${b.id}">🗑️ Eliminar</button>
       </div>
+      ${abonoWidget(b)}
     </div>`;
   }).join('');
 
@@ -967,6 +986,7 @@ function renderReservas(){
     </div>`:'<div class="empty" style="padding:14px 0">Escribe el texto para ver el precio.</div>'}
     <label>Monto a cobrar</label>
     <input type="number" id="bkIncome" min="0" value="${incVal}">
+    ${yaAbonado?`<div class="msg msg-info">Ya se registraron abonos por ${fmtM(totalAbonado(editBk))}. Usa el botón Abonar en la lista de reservas para agregar más — este campo ya no se usa.</div>`:`
     <label>Anticipo</label>
     <input type="number" id="bkAnticipo" min="0" value="${esc(state.bkAnticipo)}">
     <label>Método de pago</label>
@@ -975,7 +995,7 @@ function renderReservas(){
       <option value="Efectivo" ${state.bkMetodo==='Efectivo'?'selected':''}>Efectivo</option>
       <option value="Transferencia" ${state.bkMetodo==='Transferencia'?'selected':''}>Transferencia</option>
       <option value="Tarjeta" ${state.bkMetodo==='Tarjeta'?'selected':''}>Tarjeta</option>
-    </select>
+    </select>`}
     <label>Notas</label>
     <textarea id="bkNotes" rows="2" placeholder="Instrucciones especiales...">${esc(state.bkNotes)}</textarea>
     ${accesorios.length?`<div class="section-label" style="margin-top:0">Piezas adicionales</div>${accHtml}`:''}
@@ -1015,7 +1035,7 @@ function renderCalendario(){
     detail=`<div class="section-label">${state.calSelectedDate}</div><div class="list">`;
     if(cov.length){
       detail+=cov.map(b=>{
-        const total=Number(b.income)||0,ant=Number(b.anticipo)||0,rest=total-ant;
+        const total=Number(b.income)||0,ant=totalAbonado(b),rest=restanteDe(b);
         const horas=(b.horaEntrega||b.horaRecoleccion)?` · ${b.horaEntrega||'—'}→${b.horaRecoleccion||'—'}`:'';
         return`<div class="item">
           <div class="item-top"><div><div class="item-name">${esc(tituloEvento(b))}</div><div class="item-meta">${esc(b.client)}${b.telefono?' · '+esc(b.telefono):''}${horas}<br>Total ${fmtM(total)} · Anticipo ${fmtM(ant)} · Restante ${fmtM(rest)}</div></div></div>
@@ -1319,7 +1339,7 @@ function generarPDF(){
 // ─── WHATSAPP REMINDER ─────────────────────────────────
 function sendWaRecordatorio(bookingId){
   const b=state.bookings.find(x=>x.id===bookingId);if(!b||!b.telefono)return alert('Esta reserva no tiene teléfono registrado.');
-  const saldo=(Number(b.income)||0)-(Number(b.anticipo)||0);
+  const saldo=restanteDe(b);
   const msg=`Hola ${b.client}! 👋 Te recordamos que el *${b.dateStart}* es tu evento con letras gigantes.\n\n`+
     `📍 Dirección de entrega: ${b.direccion||'por confirmar'}\n`+
     (b.horaEntrega?`🕐 Hora de entrega: *${b.horaEntrega}*\n`:'')+
@@ -1438,7 +1458,14 @@ function bindEvents(){
     state.bkGeoStatus='idle';state.bkLugar='';state.bkHoraEntrega='';state.bkHoraRecoleccion='';state.bkAnticipo='';state.bkMetodo='';state.bkNotes='';state.bkIncomeOverride=null;state.bookingItemSel={};
     state.bookingMsg=null;render();
   };
-  document.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=()=>{const bk=state.bookings.find(x=>x.id===b.dataset.pagado);if(bk){bk.saldoPagado=true;bk.metodoSaldo=b.dataset.metodo||'';saveData();render();}});
+  document.querySelectorAll('[data-abonar]').forEach(btn=>btn.onclick=()=>{
+    const id=btn.dataset.abonar;
+    const input=document.querySelector(`[data-abonoinput="${id}"]`);
+    registrarAbono(id,input?input.value:0,btn.dataset.metodo);
+  });
+  document.querySelectorAll('[data-metfiltro]').forEach(el=>el.onclick=()=>{
+    state.dashFiltroMetodo=state.dashFiltroMetodo===el.dataset.metfiltro?null:el.dataset.metfiltro;render();
+  });
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
   document.querySelectorAll('[data-viewbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.viewbooking));
   document.querySelectorAll('[data-cot-conv]').forEach(b=>b.onclick=()=>convertCotizacion(b.dataset.cotConv));
@@ -1660,7 +1687,9 @@ function tryReservar(){
   if(state.editingBookingId){
     const b=state.bookings.find(x=>x.id===state.editingBookingId);
     if(b){
-      Object.assign(b,{client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,texto:(state.bkTexto||'').trim().toUpperCase(),corona:!!state.bkCorona,lugar:state.bkLugar||'',direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,anticipo:state.bkAnticipo,metodo:state.bkMetodo,notes:state.bkNotes});
+      const patch={client,telefono:state.bkTelefono,dateStart,dateEnd,items:allItems,income,texto:(state.bkTexto||'').trim().toUpperCase(),corona:!!state.bkCorona,lugar:state.bkLugar||'',direccion:state.bkDireccion,horaEntrega:state.bkHoraEntrega,horaRecoleccion:state.bkHoraRecoleccion,notes:state.bkNotes};
+      if(!(b.abonos&&b.abonos.length)){patch.anticipo=state.bkAnticipo;patch.metodo=state.bkMetodo;}
+      Object.assign(b,patch);
     }
     state.editingBookingId=null;
     state.bkClient='';state.bkTelefono='';state.bkTexto='';state.bkCorona=false;state.bkDireccion='';state.bkKm='';
@@ -1709,4 +1738,3 @@ loadData();
 </script>
 </body>
 </html>
-a
