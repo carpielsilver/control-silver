@@ -285,6 +285,13 @@ button:disabled{opacity:0.4;}
 .mat-add input[type=number]{width:74px;text-align:right;font-family:var(--mono);}
 .abono-row{display:flex;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);}
 .abono-row input{margin:0;padding:8px 9px;width:90px;text-align:right;font-family:var(--mono);}
+.abono-list{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);}
+.abono-list-title{font-size:.78rem;color:var(--text-3);margin-bottom:6px;}
+.abono-line{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+.abono-line .al-fecha{font-size:.76rem;color:var(--text-3);font-family:var(--mono);width:68px;flex-shrink:0;}
+.abono-line .al-monto{margin:0;padding:6px 7px;width:70px;text-align:right;font-family:var(--mono);}
+.abono-line .al-metodo{margin:0;padding:6px 7px;flex:1;min-width:0;font-size:.82rem;}
+.abono-line .al-x{background:none;border:none;color:#ef8b6f;font-size:1.1rem;line-height:1;cursor:pointer;padding:0 4px;}
 .mat-precio{width:92px;margin:0;padding:7px 9px;text-align:right;font-family:var(--mono);}
 .q-total{border-top:1px solid rgba(217,154,78,0.25);margin-top:10px;padding-top:11px;display:flex;justify-content:space-between;align-items:center;}
 .q-total .ql{font-family:var(--serif);font-weight:600;font-size:0.95rem;color:var(--amber-2);}
@@ -407,7 +414,7 @@ let state={
   pjClient:'',pjNombre:'',pjTipo:'Mueble',pjPresupuesto:'',pjAnticipo:'',
   pjMateria:'',pjMano:'',pjStatus:'En espera',pjFechaInicio:'',pjFechaEntrega:'',pjNotas:'',pjMsg:null,
   matNombre:'',matUnidad:'pza',matPrecio:'',matBuscar:'',matImport:'',matMsg:null,
-  pjTelefono:'',pjDireccion:'',dashFiltroMetodo:null,
+  pjTelefono:'',pjDireccion:'',dashFiltroMetodo:null,bkFiltro:'',
 };
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
@@ -465,7 +472,6 @@ function abonoWidget(b){
   </div>`;
 }
 // Pagos de antes del sistema de abonos que quedaron sin método (efectivo/tarjeta) asignado
-function abonosSinMetodo(b){return abonosDe(b).filter(a=>!a.metodo);}
 function fijarMetodoAbono(bookingId,entryId,metodo){
   const b=state.bookings.find(x=>x.id===bookingId);if(!b)return;
   if(!b.abonos)b.abonos=abonosDe(b);
@@ -473,15 +479,37 @@ function fijarMetodoAbono(bookingId,entryId,metodo){
   entry.metodo=metodo;
   saveData();render();
 }
-function corregirMetodoWidget(b){
-  const faltantes=abonosSinMetodo(b);
-  if(!faltantes.length)return'';
-  return`<div class="abono-row" style="flex-wrap:wrap;gap:8px">
-    <div style="width:100%;font-size:.8rem;color:var(--text-3)">¿Cómo te pagaron esto?</div>
-    ${faltantes.map(a=>`<div style="display:flex;align-items:center;gap:6px;width:100%">
-      <span class="mono" style="flex:1">${fmtM(a.monto)} · ${a.fecha}</span>
-      <button class="btn btn-warn btn-sm" data-fijarmetodo="${b.id}:${a.id}" data-metodo="Efectivo">💵 Efectivo</button>
-      <button class="btn btn-warn btn-sm" data-fijarmetodo="${b.id}:${a.id}" data-metodo="Tarjeta">💳 Tarjeta</button>
+function editarMontoAbono(bookingId,entryId,nuevoMonto){
+  const b=state.bookings.find(x=>x.id===bookingId);if(!b)return;
+  if(!b.abonos)b.abonos=abonosDe(b);
+  nuevoMonto=Math.round(Number(nuevoMonto)||0);
+  if(nuevoMonto<=0)return eliminarAbono(bookingId,entryId);
+  const entry=b.abonos.find(a=>a.id===entryId);if(!entry)return;
+  entry.monto=nuevoMonto;
+  saveData();render();
+}
+function eliminarAbono(bookingId,entryId){
+  const b=state.bookings.find(x=>x.id===bookingId);if(!b)return;
+  if(!b.abonos)b.abonos=abonosDe(b);
+  b.abonos=b.abonos.filter(a=>a.id!==entryId);
+  saveData();render();
+}
+// Lista editable de todos los abonos de una reserva: monto, método y borrar
+function abonosListWidget(b){
+  const abonos=abonosDe(b);
+  if(!abonos.length)return'';
+  return`<div class="abono-list">
+    <div class="abono-list-title">Abonos registrados</div>
+    ${abonos.map(a=>`<div class="abono-line">
+      <span class="al-fecha">${a.fecha}</span>
+      <input type="number" min="0" class="al-monto" data-editabono="${b.id}:${a.id}" value="${a.monto}">
+      <select class="al-metodo" data-editabonometodo="${b.id}:${a.id}">
+        <option value="" ${!a.metodo?'selected':''}>Sin especificar</option>
+        <option value="Efectivo" ${a.metodo==='Efectivo'?'selected':''}>💵 Efectivo</option>
+        <option value="Tarjeta" ${a.metodo==='Tarjeta'?'selected':''}>💳 Tarjeta</option>
+        <option value="Transferencia" ${a.metodo==='Transferencia'?'selected':''}>Transferencia</option>
+      </select>
+      <button class="al-x" data-delabono="${b.id}:${a.id}">×</button>
     </div>`).join('')}
   </div>`;
 }
@@ -925,7 +953,10 @@ function renderReservas(){
     const sel=state.bookingItemSel[it.id]||{checked:false,qty:1};
     return`<div class="itemcheck"><input type="checkbox" data-bi-check="${it.id}" ${sel.checked?'checked':''}><div class="name">${esc(it.name)} <span class="mono" style="color:var(--text-3)">(${it.total})</span></div><input type="number" min="1" max="${it.total}" data-bi-qty="${it.id}" value="${sel.qty}"></div>`;
   }).join('');
-  const sorted=[...state.bookings].sort((a,b)=>b.dateStart.localeCompare(a.dateStart));
+  const q=(state.bkFiltro||'').trim().toLowerCase();
+  const sorted=[...state.bookings]
+    .filter(b=>!q||String(b.client||'').toLowerCase().includes(q)||String(b.telefono||'').includes(q))
+    .sort((a,b)=>b.dateStart.localeCompare(a.dateStart));
   const bkItems=sorted.map(b=>{
     const saldo=restanteDe(b);
     const dateLabel=b.dateStart===b.dateEnd?b.dateStart:`${b.dateStart}→${b.dateEnd}`;
@@ -948,7 +979,7 @@ function renderReservas(){
         <button class="btn btn-danger btn-sm" data-delbooking="${b.id}">🗑️ Eliminar</button>
       </div>
       ${abonoWidget(b)}
-      ${corregirMetodoWidget(b)}
+      ${abonosListWidget(b)}
     </div>`;
   }).join('');
 
@@ -1032,7 +1063,8 @@ function renderReservas(){
   <div class="section-label">Cotizaciones pendientes</div>
   <div class="list">${cotItems}</div>`:''}
   <div class="section-label">Reservas · ${sorted.length}</div>
-  <div class="list">${sorted.length?bkItems:'<div class="empty">Sin reservas aún.</div>'}</div>`;
+  <input type="text" id="bkFiltroInput" placeholder="🔍 Buscar por nombre o teléfono" value="${esc(state.bkFiltro)}" style="margin-bottom:10px">
+  <div class="list">${sorted.length?bkItems:`<div class="empty">${q?'Sin resultados para esa búsqueda.':'Sin reservas aún.'}</div>`}</div>`;
 }
 
 // ─── CALENDARIO ────────────────────────────────────────
@@ -1118,6 +1150,7 @@ function renderFinanzas(){
       <button data-group="año" class="${g==='año'?'active':''}">Por año</button>
     </div>
     <button class="btn btn-ghost btn-block" id="pdfBtn" style="margin-bottom:14px">📄 Descargar reporte PDF</button>
+    <button class="btn btn-ghost btn-block" id="backupBtn" style="margin-bottom:14px">⬇️ Descargar respaldo completo (.json)</button>
     ${summary.length?`<div class="list">${sItems}</div>`:'<div class="empty">Sin datos.</div>'}
   </div>
   <div class="card"><div class="card-title">Gastos por categoría</div>${catBars}</div>
@@ -1315,6 +1348,20 @@ function renderContratoTab(){
 }
 
 // ─── PDF REPORT ────────────────────────────────────────
+function descargarRespaldo(){
+  const backup={
+    fecha:new Date().toISOString(),
+    bookings:state.bookings,inventory:state.inventory,materials:state.materials,
+    projects:state.projects,expenses:state.expenses,expCategories:state.expCategories,
+    cotizaciones:state.cotizaciones,
+  };
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`respaldo-carpinteria-el-silver-${todayISO()}.json`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 function generarPDF(){
   if(!window.jspdf){alert('Cargando PDF, intenta de nuevo.');return;}
   const {jsPDF}=window.jspdf;
@@ -1488,9 +1535,17 @@ function bindEvents(){
   document.querySelectorAll('[data-metfiltro]').forEach(el=>el.onclick=()=>{
     state.dashFiltroMetodo=state.dashFiltroMetodo===el.dataset.metfiltro?null:el.dataset.metfiltro;render();
   });
-  document.querySelectorAll('[data-fijarmetodo]').forEach(btn=>btn.onclick=()=>{
-    const[bookingId,entryId]=btn.dataset.fijarmetodo.split(':');
-    fijarMetodoAbono(bookingId,entryId,btn.dataset.metodo);
+  document.querySelectorAll('[data-editabono]').forEach(inp=>inp.onchange=()=>{
+    const[bookingId,entryId]=inp.dataset.editabono.split(':');
+    editarMontoAbono(bookingId,entryId,inp.value);
+  });
+  document.querySelectorAll('[data-editabonometodo]').forEach(sel=>sel.onchange=()=>{
+    const[bookingId,entryId]=sel.dataset.editabonometodo.split(':');
+    fijarMetodoAbono(bookingId,entryId,sel.value);
+  });
+  document.querySelectorAll('[data-delabono]').forEach(btn=>btn.onclick=()=>{
+    const[bookingId,entryId]=btn.dataset.delabono.split(':');
+    if(confirm('¿Eliminar este abono?'))eliminarAbono(bookingId,entryId);
   });
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
   document.querySelectorAll('[data-viewbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.viewbooking));
@@ -1522,6 +1577,7 @@ function bindEvents(){
   };
   document.querySelectorAll('[data-delcat]').forEach(b=>b.onclick=()=>{state.expCategories=state.expCategories.filter(c=>c!==b.dataset.delcat);saveData();render();});
   const pdfBtn=document.getElementById('pdfBtn');if(pdfBtn)pdfBtn.onclick=generarPDF;
+  const backupBtn=document.getElementById('backupBtn');if(backupBtn)backupBtn.onclick=descargarRespaldo;
 
   const bpj=(id,key)=>{const el=document.getElementById(id);if(el)el.oninput=()=>state[key]=el.value;};
   bpj('pjClient','pjClient');bpj('pjTelefono','pjTelefono');bpj('pjDireccion','pjDireccion');bpj('pjNombre','pjNombre');bpj('pjPresupuesto','pjPresupuesto');
@@ -1581,6 +1637,8 @@ function bindEvents(){
   bpj('matNombre','matNombre');bpj('matPrecio','matPrecio');bpj('matImport','matImport');
   const matB=document.getElementById('matBuscar');
   if(matB)matB.oninput=()=>{state.matBuscar=matB.value;render();focusEnd('matBuscar');};
+  const bkF=document.getElementById('bkFiltroInput');
+  if(bkF)bkF.oninput=()=>{state.bkFiltro=bkF.value;render();focusEnd('bkFiltroInput');};
   const matU=document.getElementById('matUnidad');if(matU)matU.onchange=()=>state.matUnidad=matU.value;
   const addMat=document.getElementById('addMatBtn');
   if(addMat)addMat.onclick=()=>{
