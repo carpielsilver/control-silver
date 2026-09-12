@@ -423,6 +423,7 @@ function semanaActual(){
   return{inicio:lunes.toISOString().slice(0,10),fin:domingo.toISOString().slice(0,10)};
 }
 function tocaSemana(b,semana){return b.dateStart<=semana.fin&&b.dateEnd>=semana.inicio;}
+function estaLiquidado(b){return !!b.saldoPagado||(Number(b.income)||0)-(Number(b.anticipo)||0)<=0;}
 
 // ─── COTIZADOR ─────────────────────────────────────────
 function getPPU(n){if(n===1)return 400;if(n<=3)return 350;if(n<=6)return 300;return 290;}
@@ -621,16 +622,33 @@ function renderDashboard(){
   const semana=semanaActual();
   const rangoSemana=`${semana.inicio.slice(8,10)}/${semana.inicio.slice(5,7)} al ${semana.fin.slice(8,10)}/${semana.fin.slice(5,7)}`;
 
-  const eventosSemana=state.bookings.filter(b=>b.status==='confirmed'&&tocaSemana(b,semana))
-    .sort((a,b)=>a.dateStart.localeCompare(b.dateStart));
-  const pendientesSemana=eventosSemana.filter(b=>!b.saldoPagado&&(Number(b.income)||0)-(Number(b.anticipo)||0)>0);
+  const todosSemana=state.bookings.filter(b=>b.status==='confirmed'&&tocaSemana(b,semana));
+  const eventosSemana=todosSemana.filter(b=>!estaLiquidado(b)).sort((a,b)=>a.dateStart.localeCompare(b.dateStart));
+  const pendientesSemana=eventosSemana;
   const enProceso=state.projects.filter(p=>p.status==='En proceso');
 
-  const semIncome=eventosSemana.reduce((s,b)=>s+(Number(b.income)||0),0);
-  const mesKey=today.slice(0,7);
-  const mesIncome=state.bookings.filter(b=>b.status==='confirmed'&&b.dateStart.startsWith(mesKey)).reduce((s,b)=>s+(Number(b.income)||0),0);
-  const mesExpense=state.expenses.filter(e=>e.date.startsWith(mesKey)).reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const semIncome=todosSemana.reduce((s,b)=>s+(Number(b.income)||0),0);
   const porCobrarSemana=pendientesSemana.reduce((s,b)=>s+(Number(b.income)||0)-(Number(b.anticipo)||0),0);
+
+  let efectivoSemana=0,tarjetaSemana=0;
+  for(const b of todosSemana){
+    const ant=Number(b.anticipo)||0;
+    if(ant>0){
+      if(b.metodo==='Efectivo')efectivoSemana+=ant;
+      else if(b.metodo==='Tarjeta'||b.metodo==='Transferencia')tarjetaSemana+=ant;
+    }
+    if(b.saldoPagado){
+      const saldo=(Number(b.income)||0)-ant;
+      if(saldo>0){
+        if(b.metodoSaldo==='Efectivo')efectivoSemana+=saldo;
+        else if(b.metodoSaldo==='Tarjeta')tarjetaSemana+=saldo;
+      }
+    }
+  }
+
+  const botonesPago=(b)=>`
+    <button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Efectivo">💵 Pagó efectivo</button>
+    <button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Tarjeta">💳 Pagó tarjeta</button>`;
 
   const proxHtml=eventosSemana.length?`<div class="list">`+eventosSemana.map(b=>{
     const days=Math.ceil((new Date(b.dateStart+'T00:00:00')-new Date(today+'T00:00:00'))/(86400000));
@@ -644,9 +662,10 @@ function renderDashboard(){
         <button class="btn btn-primary btn-sm" data-viewbooking="${b.id}">🔍 Ver detalles</button>
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank" rel="noopener">📅 Calendar</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬 Recordar</button>
+        ${botonesPago(b)}
       </div>
     </div>`;
-  }).join('')+`</div>`:`<div class="empty">Sin eventos esta semana.</div>`;
+  }).join('')+`</div>`:`<div class="empty">Sin eventos pendientes esta semana.</div>`;
 
   const saldoHtml=pendientesSemana.length?`<div class="list">`+pendientesSemana.map(b=>{
     const total=Number(b.income)||0,ant=Number(b.anticipo)||0,saldo=total-ant;
@@ -655,7 +674,7 @@ function renderDashboard(){
         <div><div class="item-name">${esc(b.client)}</div><div class="item-meta">${b.dateStart} · Anticipo ${fmtM(ant)}</div></div>
         <span class="item-val">${fmtM(saldo)}</span>
       </div>
-      <div class="item-actions"><button class="btn btn-warn btn-sm" data-pagado="${b.id}">Marcar pagado ✓</button></div>
+      <div class="item-actions">${botonesPago(b)}</div>
     </div>`;
   }).join('')+`</div>`:`<div class="empty" style="color:#9dc491">✓ Sin saldos pendientes esta semana</div>`;
 
@@ -671,15 +690,20 @@ function renderDashboard(){
   ${greetHtml}
   <div class="card">
     <div class="card-title">Eventos de esta semana</div>
-    <div class="card-sub">${rangoSemana}</div>
+    <div class="card-sub">${rangoSemana} · al marcar pagado, el evento se quita de esta lista</div>
     ${proxHtml}
   </div>
   <div class="stat-grid">
     <div class="stat income"><div class="lbl">Ingresos de la semana</div><div class="val">${fmtM(semIncome)}</div></div>
-    <div class="stat income"><div class="lbl">Ingresos del mes</div><div class="val">${fmtM(mesIncome)}</div></div>
-    <div class="stat expense"><div class="lbl">Gastos del mes</div><div class="val">${fmtM(mesExpense)}</div></div>
-    <div class="stat profit"><div class="lbl">Utilidad del mes</div><div class="val">${fmtM(mesIncome-mesExpense)}</div></div>
     <div class="stat warn"><div class="lbl">Por cobrar (semana)</div><div class="val">${fmtM(porCobrarSemana)}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Dinero que entra — esta semana</div>
+    <div class="card-sub">Anticipos y saldos ya cobrados de eventos de esta semana</div>
+    <div class="stat-grid">
+      <div class="stat income"><div class="lbl">💵 Efectivo</div><div class="val">${fmtM(efectivoSemana)}</div></div>
+      <div class="stat income"><div class="lbl">💳 Tarjeta</div><div class="val">${fmtM(tarjetaSemana)}</div></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-title">Saldos pendientes de la semana</div>
@@ -879,7 +903,7 @@ function renderReservas(){
         <a class="btn btn-contract btn-sm" href="${buildContratoUrl(b)}" target="_blank">📄 Contrato</a>
         <a class="btn btn-gcal btn-sm" href="${buildGCalUrl(b)}" target="_blank">📅</a>
         <button class="btn btn-whats btn-sm" data-wa-rec="${b.id}">💬</button>
-        ${!b.saldoPagado&&saldo>0?`<button class="btn btn-warn btn-sm" data-pagado="${b.id}">Cobrado</button>`:''}
+        ${!b.saldoPagado&&saldo>0?`<button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Efectivo">💵 Cobrado efectivo</button><button class="btn btn-warn btn-sm" data-pagado="${b.id}" data-metodo="Tarjeta">💳 Cobrado tarjeta</button>`:''}
         <button class="btn btn-ghost btn-sm" data-editbooking="${b.id}">✏️ Editar</button>
         ${b.status==='confirmed'?`<button class="btn btn-danger btn-sm" data-cancel="${b.id}">Cancelar</button>`:''}
         <button class="btn btn-danger btn-sm" data-delbooking="${b.id}">🗑️ Eliminar</button>
@@ -1414,7 +1438,7 @@ function bindEvents(){
     state.bkGeoStatus='idle';state.bkLugar='';state.bkHoraEntrega='';state.bkHoraRecoleccion='';state.bkAnticipo='';state.bkMetodo='';state.bkNotes='';state.bkIncomeOverride=null;state.bookingItemSel={};
     state.bookingMsg=null;render();
   };
-  document.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=()=>{const bk=state.bookings.find(x=>x.id===b.dataset.pagado);if(bk){bk.saldoPagado=true;saveData();render();}});
+  document.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=()=>{const bk=state.bookings.find(x=>x.id===b.dataset.pagado);if(bk){bk.saldoPagado=true;bk.metodoSaldo=b.dataset.metodo||'';saveData();render();}});
   document.querySelectorAll('[data-wa-rec]').forEach(b=>b.onclick=()=>sendWaRecordatorio(b.dataset.waRec));
   document.querySelectorAll('[data-viewbooking]').forEach(b=>b.onclick=()=>editBooking(b.dataset.viewbooking));
   document.querySelectorAll('[data-cot-conv]').forEach(b=>b.onclick=()=>convertCotizacion(b.dataset.cotConv));
