@@ -1,0 +1,64 @@
+CONTROL CARPINTERÍA — MODULARIZACIÓN DEL CÓDIGO
+==================================================
+
+Qué cambió:
+-----------
+Tu app (index.html) era un solo archivo con TODO adentro: estilos, la
+lógica de inventario, cotizador, calendario, finanzas, taller y
+contratos, todo mezclado en ~1,800 líneas. Por eso cada edición
+obligaba a revisar el archivo completo.
+
+Dividí ese mismo código (sin reescribir ni cambiar ninguna lógica,
+solo lo separé) en:
+
+  - styles.css             -> todos los estilos (antes en <style>)
+  - app/constants.js       -> constantes generales (WhatsApp, iconos, etc.)
+  - app/state.js           -> el estado global de la app
+  - app/utils.js           -> funciones generales + abonos
+  - app/cotizador.js       -> cálculo de precios del cotizador
+  - app/gcal.js            -> integración con Google Calendar
+  - app/persistencia.js    -> guardar/cargar datos (Vercel KV)
+  - app/disponibilidad.js  -> disponibilidad de inventario + link de contrato
+  - app/render.js          -> motor de navegación entre pestañas
+  - app/tab-dashboard.js   -> pestaña Inicio
+  - app/tab-inventario.js  -> pestaña Inventario
+  - app/tab-reservas.js    -> pestaña Cotizar/Reservas
+  - app/tab-calendario.js  -> pestaña Calendario
+  - app/tab-finanzas.js    -> pestaña Finanzas
+  - app/tab-carpinteria.js -> pestaña Taller
+  - app/tab-contratos.js   -> pestaña Contratos
+  - app/pdf.js             -> generación de PDF y respaldo
+  - app/whatsapp.js        -> recordatorios por WhatsApp
+  - app/events.js          -> todos los botones/eventos de la interfaz
+  - app/theme.js           -> modo claro/oscuro
+  - app/init.js            -> arranque de la app (debe ir al final)
+  - index.html             -> ahora solo enlaza estos archivos
+
+Verifiqué que el código extraído es exactamente el mismo (lo comparé
+línea por línea contra el original) y lo probé en un navegador:
+carga sin errores, cambia de pestaña correctamente y se ve igual.
+
+Qué NO cambié:
+---------------
+api/data.js, api/ics.js, manifest.json, los íconos, contrato.html,
+contrato-carpinteria.html, package.json, vercel.json -- todo eso se
+queda igual, no lo toques ni lo reemplaces.
+
+Cómo subir esto a tu repo (carpielsilver/control-silver):
+------------------------------------------------------------
+1. En GitHub, sube estos archivos reemplazando el index.html actual
+   y agregando la carpeta app/ y styles.css:
+   - index.html (reemplaza el actual)
+   - styles.css (nuevo)
+   - app/ (carpeta nueva completa, 20 archivos)
+2. Vercel despliega automáticamente en cuanto subas los cambios a
+   la rama main (igual que siempre).
+3. Abre la app después del deploy y revisa que todo se vea y
+   funcione normal. Si algo no carga, dime y lo reviso de inmediato.
+
+A partir de ahora:
+--------------------
+Cuando pidas un cambio en, por ejemplo, el cotizador, solo necesito
+tocar app/cotizador.js (y a veces app/tab-reservas.js), no los demás
+~1,700 líneas del resto de la app. Eso es lo que baja el consumo de
+créditos en cada edición.
